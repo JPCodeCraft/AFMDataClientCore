@@ -31,14 +31,14 @@ namespace Albion.Network
             {
                 if (packet.EventCode != singleEventCode)
                 {
-                    return NextAsync(packet);
+                    return Task.CompletedTask;
                 }
             }
             else
             {
                 if (eventCodes == null || !eventCodes.Contains(packet.EventCode))
                 {
-                    return NextAsync(packet);
+                    return Task.CompletedTask;
                 }
             }
 

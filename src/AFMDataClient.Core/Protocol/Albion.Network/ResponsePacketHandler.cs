@@ -18,7 +18,7 @@ namespace Albion.Network
         {
             if (operationCode != packet.OperationCode)
             {
-                return NextAsync(packet);
+                return Task.CompletedTask;
             }
             else
             {

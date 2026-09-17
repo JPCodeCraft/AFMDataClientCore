@@ -1,11 +1,6 @@
-using AlbionDataAvalonia.Network.Models;
-using Serilog;
 using System;
-using System.Net;
-using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
 using System.Numerics;
@@ -23,28 +18,6 @@ public partial class PowSolver : IDisposable
     internal void ResetCounter(ulong value) => _counter = value;
 
     public virtual void Dispose() => _sha256.Dispose();
-
-    public async Task<PowRequest?> GetPowRequest(AlbionServer server, HttpClient client)
-    {
-        if (client.BaseAddress == null)
-        {
-            Log.Error("Base address is null.");
-            return null;
-        }
-
-        var requestUri = new Uri(client.BaseAddress, "/pow");
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-
-        using var response = await client.SendAsync(request);
-        if (response.StatusCode != HttpStatusCode.OK)
-        {
-            Log.Error("Got bad response code when getting PoW: {0}", response.StatusCode);
-            return null;
-        }
-
-        var content = await response.Content.ReadAsStringAsync();
-        return JsonSerializer.Deserialize<PowRequest>(content);
-    }
 
     public Task<string> SolvePow(PowRequest pow, CancellationToken cancellationToken = default) =>
         Task.Run(() => ProcessPow(pow, cancellationToken), cancellationToken);

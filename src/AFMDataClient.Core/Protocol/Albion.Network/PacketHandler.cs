@@ -4,16 +4,7 @@ namespace Albion.Network
 {
     public abstract class PacketHandler<TPacket> : IPacketHandler
     {
-        private IPacketHandler? nextHandler;
-
         public int Priority { get; set; }
-
-        public IPacketHandler SetNext(IPacketHandler handler)
-        {
-            nextHandler = handler;
-
-            return handler;
-        }
 
         public Task HandleAsync(object request)
         {
@@ -21,19 +12,9 @@ namespace Albion.Network
             {
                 return OnHandleAsync(packet);
             }
-            else if (nextHandler != null)
-            {
-                return NextAsync(request);
-            }
-
             return Task.CompletedTask;
         }
 
         protected internal abstract Task OnHandleAsync(TPacket packet);
-
-        protected Task NextAsync(object request)
-        {
-            return nextHandler?.HandleAsync(request) ?? Task.CompletedTask;
-        }
     }
 }
