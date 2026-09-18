@@ -4,6 +4,10 @@ Shared protocol and upload implementation for the [Avalonia desktop client](http
 
 ## What belongs here
 
+The `assets/icons` directory holds images shared by the clients. Both applications
+link `icon_shop_premium.png` into their own platform resources at build time;
+the core library does not depend on either UI framework.
+
 | Shared library | Client applications |
 | --- | --- |
 | Photon framing, fragmentation, Protocol18 decoding and parameter conversions | Native packet capture, VPN service and network-device selection |
