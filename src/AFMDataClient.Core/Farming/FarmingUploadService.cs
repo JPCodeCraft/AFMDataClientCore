@@ -408,7 +408,7 @@ public sealed class FarmingUploadService : IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 ScheduleRetry(outbox);
-                Log.Warning("Farming upload returned HTTP {StatusCode}; retaining observations for retry", (int)response.StatusCode);
+                Log.Warning("Farming upload returned HTTP {StatusCode}; retaining observations for retry. Identifier: {identifier}", (int)response.StatusCode, identifier);
                 return;
             }
 
@@ -416,7 +416,7 @@ public sealed class FarmingUploadService : IDisposable
             if (result?.Accepted != true)
             {
                 ScheduleRetry(outbox);
-                Log.Warning("Farming upload was not acknowledged; retaining observations for retry");
+                Log.Warning("Farming upload was not acknowledged; retaining observations for retry. Identifier: {identifier}", identifier);
                 return;
             }
 
@@ -428,8 +428,8 @@ public sealed class FarmingUploadService : IDisposable
             outbox.Failures = 0;
             outbox.NextAttemptAtUtc = DateTime.UtcNow + UploadInterval;
             await PersistAsync(outbox).ConfigureAwait(false);
-            Log.Debug("Uploaded farming observations: {IslandCount} islands, {ObjectCount} objects and {PickupCount} pickups",
-                batch.Islands.Count, batch.Objects.Count, batch.Pickups.Count);
+            Log.Information("Farming upload complete. {IslandCount} islands, {ObjectCount} objects and {PickupCount} pickups. Identifier: {identifier}",
+                batch.Islands.Count, batch.Objects.Count, batch.Pickups.Count, identifier);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -439,7 +439,7 @@ public sealed class FarmingUploadService : IDisposable
         catch (Exception ex)
         {
             ScheduleRetry(outbox);
-            Log.Warning(ex, "Farming upload failed; retaining observations for retry");
+            Log.Warning(ex, "Farming upload failed; retaining observations for retry. Identifier: {identifier}", identifier);
         }
         finally
         {

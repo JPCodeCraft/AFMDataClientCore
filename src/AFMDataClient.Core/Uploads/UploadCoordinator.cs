@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -25,6 +27,7 @@ public sealed class UploadCoordinator : IDisposable
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
     private static readonly JsonSerializerOptions PublicJson = new() { IncludeFields = true };
+    private static readonly bool PowJitOptimizationDisabled = typeof(PowSolver).Assembly.GetCustomAttribute<DebuggableAttribute>()?.IsJITOptimizerDisabled == true;
     private readonly IUploadAuthSession auth;
     private readonly CoreSettings settings;
     private readonly ClientSession session;
@@ -154,7 +157,7 @@ public sealed class UploadCoordinator : IDisposable
     {
         try { await UploadAsync(job).ConfigureAwait(false); }
         catch (OperationCanceledException) when (WasInvalidated(job)) { }
-        catch (Exception ex) { Log.Warning(ex, "Shared {Kind} upload failed", job.Kind); Report(job, UploadStatus.Failed, IsPublic(job) ? UploadScope.Public : UploadScope.Private); }
+        catch (Exception ex) { Report(job, UploadStatus.Failed, IsPublic(job) ? UploadScope.Public : UploadScope.Private, ex); }
         finally { Interlocked.Decrement(ref running); QueueChanged.Publish(); }
     }
 
@@ -233,6 +236,16 @@ public sealed class UploadCoordinator : IDisposable
             if (challenge == null) { Report(job, UploadStatus.Failed, UploadScope.Public); return; }
             var stopwatch = Stopwatch.StartNew();
             var solution = await solver.SolvePow(challenge, token).ConfigureAwait(false);
+            stopwatch.Stop();
+            if (Log.IsEnabled(Serilog.Events.LogEventLevel.Debug))
+            {
+                // A new solver starts at zero. This counts candidates through the winning nonce;
+                // SIMD batches can compute a few additional candidates in the final batch.
+                decimal? attempts = ulong.TryParse(solution, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var counter)
+                    ? (decimal)counter + 1 : null;
+                Log.Debug("Solved PoW in {ElapsedMilliseconds:F2} ms. Difficulty: {DifficultyBits} bits. Candidate attempts: {Attempts}. JIT optimization disabled: {JitOptimizationDisabled}. Identifier: {identifier}. Server: {Server}",
+                    stopwatch.Elapsed.TotalMilliseconds, challenge.Wanted?.Length ?? 0, attempts, PowJitOptimizationDisabled, job.Identifier, job.Context.Server.Name);
+            }
             PowSolved.Publish(stopwatch.Elapsed.TotalMilliseconds);
             using var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -245,19 +258,26 @@ public sealed class UploadCoordinator : IDisposable
             using var response = await publicClient.PostAsync(new Uri(origin, "/pow/" + topic), content, token).ConfigureAwait(false);
             var status = response.IsSuccessStatusCode ? UploadStatus.Success : UploadStatus.Failed;
             if (status == UploadStatus.Success) Remember(key);
-            Report(job, status, UploadScope.Public);
+            Report(job, status, UploadScope.Public, statusCode: response.StatusCode);
         }
         catch (OperationCanceledException) when (WasInvalidated(job, UploadScope.Public)) { throw; }
         catch (Exception exception)
         {
-            Log.Warning(exception, "Public {Kind} upload failed", job.Kind);
-            Report(job, UploadStatus.Failed, UploadScope.Public);
+            Report(job, UploadStatus.Failed, UploadScope.Public, exception);
         }
         finally { inFlight.TryRemove(key, out _); }
     }
 
     private async Task UploadPrivateAsync(Job job, object payload, string path, bool deduplicate)
     {
+        // Market batches previously used the configured upload concurrency in both clients.
+        // Only snapshots need serialization to prevent older observations overwriting newer ones.
+        if (job.Kind == "MarketOrders")
+        {
+            await UploadPrivateCoreAsync(job, payload, path, deduplicate).ConfigureAwait(false);
+            return;
+        }
+
         // Keep AFM observations in queue order so an older schedule cannot overwrite a newer snapshot.
         await afmDataGate.WaitAsync(shutdown.Token).ConfigureAwait(false);
         try { await UploadPrivateCoreAsync(job, payload, path, deduplicate).ConfigureAwait(false); }
@@ -323,13 +343,12 @@ public sealed class UploadCoordinator : IDisposable
                 }
                 else foreach (var entryKey in entryKeys) Remember(entryKey);
             }
-            Report(job, status, UploadScope.Private);
+            Report(job, status, UploadScope.Private, statusCode: response?.StatusCode);
         }
         catch (OperationCanceledException) when (WasInvalidated(job, UploadScope.Private)) { throw; }
         catch (Exception exception)
         {
-            Log.Warning(exception, "Private {Kind} upload failed", job.Kind);
-            Report(job, UploadStatus.Failed, UploadScope.Private);
+            Report(job, UploadStatus.Failed, UploadScope.Private, exception);
         }
         finally { if (deduplicate) inFlight.TryRemove(key, out _); }
     }
@@ -395,7 +414,60 @@ public sealed class UploadCoordinator : IDisposable
             }
         }
     }
-    private void Report(Job job, UploadStatus status, UploadScope scope) => UploadResult.Publish(new(job.Identifier, job.Kind, status, scope, job.Context.Server, job.Count, job.Payload));
+    private void Report(Job job, UploadStatus status, UploadScope scope, Exception? exception = null, HttpStatusCode? statusCode = null)
+    {
+        var logger = Log.ForContext("server", job.Context.Server.Name);
+        var destination = scope == UploadScope.Public ? "AODP" : "AFM";
+        if (status == UploadStatus.Success)
+        {
+            if (scope == UploadScope.Public)
+            {
+                // Preserve these prefixes and the lowercase identifier property: the desktop log view
+                // uses them to make successful AODP uploads clickable. Include the URL for text logs too.
+                var identifierUrl = $"https://albionfreemarket.com/identifiers/{job.Identifier:D}";
+                switch (job.Payload)
+                {
+                    case MarketUpload market:
+                        logger.Information("Public market upload complete. {Offers} offers, {Requests} requests. Identifier: {identifier}. Locations: {Location}. Server: {Server}. Check AODP: {IdentifierUrl}",
+                            market.Orders.Count(order => order.AuctionType == AuctionType.offer),
+                            market.Orders.Count(order => order.AuctionType == AuctionType.request), job.Identifier,
+                            string.Join(",", market.Orders.Select(order => order.Location.MarketLocation?.FriendlyName ?? "Unknown").Distinct()),
+                            job.Context.Server.Name, identifierUrl);
+                        break;
+                    case MarketHistoriesUpload history:
+                        logger.Information("Market history upload complete. [{Timescale}] => {Count} histories of {Item}. Identifier: {identifier}. Location: {Location}. Server: {Server}. Check AODP: {IdentifierUrl}",
+                            history.Timescale, job.Count, history.AlbionId, job.Identifier,
+                            history.Location.MarketLocation?.FriendlyName ?? "Unknown", job.Context.Server.Name, identifierUrl);
+                        break;
+                    case GoldPriceUpload:
+                        logger.Information("Gold price upload complete. {Count} histories. Identifier: {identifier}. Server: {Server}. Check AODP: {IdentifierUrl}",
+                            job.Count, job.Identifier, job.Context.Server.Name, identifierUrl);
+                        break;
+                    case BanditEventUpload bandit:
+                        logger.Information("Bandit event upload complete. Phase {Phase} {EventTime}. Identifier: {identifier}. Server: {Server}. Check AODP: {IdentifierUrl}",
+                            bandit.Phase, bandit.EventTime, job.Identifier, job.Context.Server.Name, identifierUrl);
+                        break;
+                }
+            }
+            else
+            {
+                logger.Information("AFM {Kind} upload complete. {Count} entries. Identifier: {identifier}. Server: {Server}",
+                    job.Kind, job.Count, job.Identifier, job.Context.Server.Name);
+            }
+        }
+        else if (status == UploadStatus.Failed)
+        {
+            var reason = statusCode.HasValue ? $"HTTP {(int)statusCode.Value} ({statusCode.Value})" : "The upload did not complete";
+            logger.Warning(exception, "{Destination} {Kind} upload failed. {Reason}. {Count} entries. Identifier: {identifier}. Server: {Server}",
+                destination, job.Kind, reason, job.Count, job.Identifier, job.Context.Server.Name);
+        }
+        else
+        {
+            logger.Debug("{Destination} {Kind} upload skipped. {Count} entries. Identifier: {identifier}. Server: {Server}",
+                destination, job.Kind, job.Count, job.Identifier, job.Context.Server.Name);
+        }
+        UploadResult.Publish(new(job.Identifier, job.Kind, status, scope, job.Context.Server, job.Count, job.Payload));
+    }
     public void Dispose()
     {
         if (disposed) return;
