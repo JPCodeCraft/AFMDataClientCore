@@ -3,9 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using Protocol16.Photon;
+using Protocol18.Photon;
 
-namespace Protocol16
+namespace Protocol18
 {
     internal enum Protocol18Type : byte
     {

@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Protocol16.Photon
+namespace Protocol18.Photon
 {
     public class EventData
     {

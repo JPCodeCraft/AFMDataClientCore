@@ -6,7 +6,7 @@ Shared protocol and upload implementation for the [Avalonia desktop client](http
 
 | Shared library | Client applications |
 | --- | --- |
-| Photon framing, fragmentation, Protocol16/18 decoding and parameter conversions | Native packet capture, VPN service and network-device selection |
+| Photon framing, fragmentation, Protocol18 decoding and parameter conversions | Native packet capture, VPN service and network-device selection |
 | Packet events, requests, responses and typed multicast dispatch | Platform startup, permissions and lifecycle |
 | Session, location, item and achievement reference data | Settings persistence, credentials and authentication UI |
 | Orders, loadout offers, history, gold, specs, EMV, bandit events, global multipliers and festivities | UI, upload statistics presentation and logging sinks |
