@@ -31,7 +31,7 @@ public sealed class ClientCore : IDisposable
     private (int? Server, string? Player, string? Location) lastSession;
     public ClientSession Session { get; } = new();
     public UploadCoordinator Uploads { get; }
-    public ItemsIdsService Items => items ?? throw new InvalidOperationException("Item reference data requires the EMV feature.");
+    public ItemsIdsService Items => items ?? throw new InvalidOperationException("Item reference data requires the EMV or islands feature.");
     public AchievementsService Achievements => achievements ?? throw new InvalidOperationException("Achievement reference data requires the specs feature.");
     public IUploadAuthSession Auth => auth;
     public int QueueCount => Uploads.QueueCount + (farmingUploads?.PendingCount ?? 0);
@@ -51,9 +51,9 @@ public sealed class ClientCore : IDisposable
         Uploads.QueueChanged += () => QueueChanged.Publish();
         Uploads.PowSolved += elapsed => PowSolved.Publish(elapsed);
         if (this.features.Contains("Specs")) achievements = new();
+        if (this.features.Overlaps(["Emv", "Islands"])) items = new();
         if (this.features.Contains("Emv"))
         {
-            items = new();
             emvTimer = new(_ => FlushEmv(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         }
         if (this.features.Contains("Islands"))
@@ -159,7 +159,7 @@ public sealed class ClientCore : IDisposable
         }, 100);
         if (features.Contains("Festivities")) builder.SubscribeEvent<FestivitiesUpdateEvent>((int)EventCodes.FestivitiesUpdate, Festivities, 100);
         if (features.Contains("Specs")) builder.SubscribeEvent<FullAchievementInfoEvent>((int)EventCodes.FullAchievementInfo, Specs, 100);
-        if (features.Contains("Emv")) RegisterEmv(builder);
+        if (features.Overlaps(["Emv", "Islands"])) RegisterEmv(builder);
         if (farming is not null) RegisterFarming(builder);
     }
 
@@ -262,45 +262,58 @@ public sealed class ClientCore : IDisposable
         builder.SubscribeEvent<FarmableObjectInfoEvent>((int)EventCodes.FarmableObjectInfo, value => { tracker.OnFarmable(value); return Task.CompletedTask; }, 100);
         builder.SubscribeEvent<FarmBuildingInfoEvent>((int)EventCodes.FarmBuildingInfo, value => { tracker.OnFarmBuilding(value); return Task.CompletedTask; }, 100);
         builder.SubscribeRequest<BuildingRenovationRequest>((int)OperationCodes.BuildingChangeRenovationState, value => { tracker.OnRenovationRequest(value); return Task.CompletedTask; }, 100);
-        foreach (var operation in new[] { OperationCodes.FarmableHarvest, OperationCodes.FarmableFinishGrownItem, OperationCodes.FarmableGetProduct, OperationCodes.FarmableDestroy, OperationCodes.PlaceableObjectPickup })
+        foreach (var operation in new[] { OperationCodes.FarmableHarvest, OperationCodes.FarmableFinishGrownItem, OperationCodes.FarmableGetProduct, OperationCodes.FarmableDestroy, OperationCodes.PlaceableObjectPickup, OperationCodes.FarmableFill })
         {
             builder.SubscribeRequest<FarmingActionRequest>((int)operation, value => { tracker.OnActionRequest(operation, value); return Task.CompletedTask; }, 100);
             builder.SubscribeResponse<FarmingActionResponse>((int)operation, value => { tracker.OnActionResponse(operation, value); return Task.CompletedTask; }, 100);
         }
+        builder.SubscribeRequest<PlaceableObjectPlaceRequest>((int)OperationCodes.PlaceableObjectPlace, value => { tracker.OnPlacementRequest(value); return Task.CompletedTask; }, 100);
+        builder.SubscribeResponse<PlaceableObjectPlaceResponse>((int)OperationCodes.PlaceableObjectPlace, value => { tracker.OnPlacementResponse(value); return Task.CompletedTask; }, 100);
+        builder.SubscribeRequest<BoostFarmableRequest>((int)OperationCodes.BoostFarmable, value => { tracker.OnBoostRequest(value); return Task.CompletedTask; }, 100);
+        builder.SubscribeEvent<BoostFarmableEvent>((int)EventCodes.BoostFarmable, value => { tracker.OnBoostEvent(value); return Task.CompletedTask; }, 100);
+        builder.SubscribeEvent<CraftingFocusUpdateEvent>((int)EventCodes.CraftingFocusUpdate, value => { tracker.OnFocusUpdate(value); return Task.CompletedTask; }, 100);
+        builder.SubscribeEvent<InventoryDeleteItemEvent>((int)EventCodes.InventoryDeleteItem, value => { tracker.OnInventoryItemDeleted(value); return Task.CompletedTask; }, 100);
+        builder.SubscribeEvent<InventoryPutItemEvent>((int)EventCodes.InventoryPutItem, value => { tracker.OnPickupInventoryPut(value); return Task.CompletedTask; }, 100);
+        builder.SubscribeEvent<InventoryStateEvent>((int)EventCodes.InventoryState, value => { tracker.OnPickupInventoryState(value); return Task.CompletedTask; }, 100);
+        builder.SubscribeRequest<InventoryMoveItemRequest>((int)OperationCodes.InventoryMoveItem, value => { tracker.OnPickupInventoryMove(value.ConnectionId, value.CapturedAt); return Task.CompletedTask; }, 100);
+        builder.SubscribeRequest<InventoryMoveGivenItemsRequest>((int)OperationCodes.InventoryMoveGivenItems, value => { tracker.OnPickupInventoryMove(value.ConnectionId, value.CapturedAt); return Task.CompletedTask; }, 100);
     }
 
     private void RegisterEmv(ReceiverBuilder builder)
     {
-        builder.SubscribeEvent<NewSimpleItemEvent>((int)EventCodes.NewSimpleItem, value => Item(value.Item, value.CapturedAt), 100);
-        builder.SubscribeEvent<NewEquipmentItemEvent>((int)EventCodes.NewEquipmentItem, value => Item(value.Item, value.CapturedAt), 100);
-        builder.SubscribeEvent<NewFurnitureItemEvent>((int)EventCodes.NewFurnitureItem, value => Item(value.Item, value.CapturedAt), 100);
-        builder.SubscribeEvent<NewJournalItemEvent>((int)EventCodes.NewJournalItem, value => Item(value.Item, value.CapturedAt), 100);
-        builder.SubscribeEvent<NewLaborerItemEvent>((int)EventCodes.NewLaborerItem, value => Item(value.Item, value.CapturedAt), 100);
-        builder.SubscribeEvent<NewKillTrophyItemEvent>((int)EventCodes.NewKillTrophyItem, value => Item(value.Item, value.CapturedAt), 100);
-        builder.SubscribeEvent<NewSiegeBannerItemEvent>((int)EventCodes.NewSiegeBannerItem, value => Item(value.Item, value.CapturedAt), 100);
+        builder.SubscribeEvent<NewSimpleItemEvent>((int)EventCodes.NewSimpleItem, value => Item(value.Item, value.ConnectionId, value.CapturedAt), 100);
+        builder.SubscribeEvent<NewEquipmentItemEvent>((int)EventCodes.NewEquipmentItem, value => Item(value.Item, value.ConnectionId, value.CapturedAt), 100);
+        builder.SubscribeEvent<NewFurnitureItemEvent>((int)EventCodes.NewFurnitureItem, value => Item(value.Item, value.ConnectionId, value.CapturedAt), 100);
+        builder.SubscribeEvent<NewJournalItemEvent>((int)EventCodes.NewJournalItem, value => Item(value.Item, value.ConnectionId, value.CapturedAt), 100);
+        builder.SubscribeEvent<NewLaborerItemEvent>((int)EventCodes.NewLaborerItem, value => Item(value.Item, value.ConnectionId, value.CapturedAt), 100);
+        builder.SubscribeEvent<NewKillTrophyItemEvent>((int)EventCodes.NewKillTrophyItem, value => Item(value.Item, value.ConnectionId, value.CapturedAt), 100);
+        builder.SubscribeEvent<NewSiegeBannerItemEvent>((int)EventCodes.NewSiegeBannerItem, value => Item(value.Item, value.ConnectionId, value.CapturedAt), 100);
         builder.SubscribeEvent<EstimatedMarketValueUpdateEvent>((int)EventCodes.EstimatedMarketValueUpdate, value =>
         {
             foreach (var entry in value.Entries)
             {
                 var mapping = items!.GetItemById(entry.ItemId);
                 entry.ItemUniqueName = mapping.UniqueName; entry.ItemUsName = mapping.UsName;
+                farming?.OnEstimatedMarketValue(mapping.UniqueName, entry.Quality, entry.EstimatedMarketValue, value.CapturedAt);
                 Emv(entry.ItemId, entry.Quality, entry.EstimatedMarketValue, null, value.CapturedAt);
             }
             return Task.CompletedTask;
         }, 100);
     }
 
-    private Task Item(NewItem? item, DateTime timestamp)
+    private Task Item(NewItem? item, string connection, DateTime timestamp)
     {
         if (item is null) return Task.CompletedTask;
         var mapping = items!.GetItemById(item.ItemIndex);
         item.ItemUniqueName = mapping.UniqueName; item.ItemUsName = mapping.UsName;
+        farming?.OnInventoryItem(item, connection, timestamp);
         Emv(item.ItemIndex, item.Quality, item.EstimatedMarketValue, item.BlackMarketEstimatedMarketValue, timestamp);
         return Task.CompletedTask;
     }
 
     private void Emv(int index, int quality, long value, long? blackMarketValue, DateTime timestamp)
     {
+        if (!features.Contains("Emv")) return;
         var context = Uploads.Snapshot();
         if (context?.AccountId is null || index <= 0 || quality is < 1 or > 5 || value <= 0) return;
         lock (packetGate)

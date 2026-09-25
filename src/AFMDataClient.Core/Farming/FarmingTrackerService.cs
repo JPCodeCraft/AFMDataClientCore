@@ -19,7 +19,7 @@ using System.Threading;
 namespace AlbionDataAvalonia.Farming;
 
 /// <summary>Tracks island observations and reversible assumptions from confirmed demolition timers.</summary>
-public sealed class FarmingTrackerService : IDisposable
+public sealed partial class FarmingTrackerService : IDisposable
 {
     private const int MaxTransientEntries = 4096;
     private static readonly TimeSpan RequestLifetime = TimeSpan.FromMinutes(2);
@@ -30,8 +30,8 @@ public sealed class FarmingTrackerService : IDisposable
     private readonly CoreSettings settings;
     private readonly Dictionary<long, FarmingObjectObservation> objects = new();
     private readonly Dictionary<long, (FarmingObjectState State, DateTime ObservedAt)> pendingStates = new();
-    private readonly Dictionary<(short Operation, long Id), PendingAction> actions = new();
-    private readonly Dictionary<(short Operation, long Id), DateTime> completedActions = new();
+    private readonly Dictionary<(string Connection, short Operation, long Id), PendingAction> actions = new();
+    private readonly Dictionary<(string Connection, short Operation, long Id), DateTime> completedActions = new();
     private readonly Dictionary<string, IslandMetadata> islandMetadata = new();
     private readonly HashSet<string> removedObjects = new(StringComparer.Ordinal);
     private readonly Dictionary<PlotKey, PendingDemolition> demolitions = new();
@@ -139,6 +139,7 @@ public sealed class FarmingTrackerService : IDisposable
         pendingStates.Clear();
         actions.Clear();
         completedActions.Clear();
+        ResetActivityState();
     }
 
     public void OnLeave(long objectId) => Observe(() =>
@@ -192,10 +193,11 @@ public sealed class FarmingTrackerService : IDisposable
     {
         if (island is null || value.RequestId is not { } requestId || value.TargetId is not { } target) return;
         PruneActions();
-        var key = ((short)operation, requestId);
+        var key = (value.ConnectionId, (short)operation, requestId);
         if (actions.ContainsKey(key) || completedActions.ContainsKey(key)) return;
+        if (actions.Count >= MaxTransientEntries) return;
         objects.TryGetValue(target, out var source);
-        actions[key] = new PendingAction(Guid.NewGuid().ToString(), DateTime.UtcNow, island, target, source);
+        actions[key] = new PendingAction(Guid.NewGuid().ToString(), value.CapturedAt, island, target, source);
     });
 
     public void OnActionResponse(OperationCodes operation, FarmingActionResponse value) => Observe(() =>
@@ -203,7 +205,7 @@ public sealed class FarmingTrackerService : IDisposable
         if (value.RequestId is not { } requestId) return;
         if (value.ReturnCode != 0)
         {
-            actions.Remove(((short)operation, requestId));
+            actions.Remove((value.ConnectionId, (short)operation, requestId));
             return;
         }
         CompleteAction(operation, value);
@@ -327,6 +329,7 @@ public sealed class FarmingTrackerService : IDisposable
     private void ObserveBuilding(NewBuildingEvent packet)
     {
         if ((!joining && island is null) || packet.Object is not { } observed) return;
+        ObservePlacementDestination(packet, observed);
         var sessionId = packet.SessionId;
         var stableId = observed.ObjectId;
         var name = observed.UniqueName;
@@ -488,11 +491,11 @@ public sealed class FarmingTrackerService : IDisposable
     {
         if (packet.RequestId is not { } requestId) return;
         PruneActions();
-        var key = ((short)operationCode, requestId);
+        var key = (packet.ConnectionId, (short)operationCode, requestId);
         if (!actions.Remove(key, out var action)) return;
         completedActions[key] = DateTime.UtcNow;
         // A successful removal is known even if a changed item payload cannot be decoded.
-        if (operationCode != OperationCodes.FarmableGetProduct && action.Source is not null)
+        if (operationCode is not (OperationCodes.FarmableGetProduct or OperationCodes.FarmableFill) && action.Source is not null)
         {
             var removed = action.Source with
             {
@@ -536,25 +539,33 @@ public sealed class FarmingTrackerService : IDisposable
             OperationCodes.FarmableHarvest => "harvest",
             OperationCodes.FarmableFinishGrownItem => "finish",
             OperationCodes.FarmableGetProduct => "product",
+            OperationCodes.FarmableFill => "feed",
+            OperationCodes.PlaceableObjectPickup => "pickup",
             _ => null
         };
         if (operation is not null)
         {
-            if (packet.Items.Count > 0)
+            // Placeable pickup is also used for furniture. Only island farmables
+            // belong in this ledger; never count a plot or an unrelated object.
+            if (operation == "pickup" && action.Source?.Kind != "farmable") return;
+            var items = operation == "pickup" ? CompletePickupInventoryReturn(action, packet)
+                : packet.Items.Select(item => ActivityItem(item.UniqueName, item.Quantity, 1, packet.CapturedAt)).ToList();
+            uploader.EnqueueAction(accountId!, new FarmingAction
             {
-                uploader.EnqueuePickup(accountId!, new FarmingPickup
-                {
-                    ServerId = action.Island.ServerId,
-                    CharacterId = action.Island.CharacterId,
-                    CharacterName = action.Island.CharacterName,
-                    IslandId = action.Island.IslandId,
-                    EventId = action.EventId,
-                    OccurredAt = DateTime.UtcNow,
-                    Operation = operation,
-                    SourceObjectId = action.Source?.ObjectId,
-                    Items = packet.Items
-                });
-            }
+                ServerId = action.Island.ServerId,
+                CharacterId = action.Island.CharacterId,
+                CharacterName = action.Island.CharacterName,
+                IslandId = action.Island.IslandId,
+                EventId = action.EventId,
+                OccurredAt = packet.CapturedAt,
+                Operation = operation,
+                SourceObjectId = action.Source?.ObjectId,
+                Inputs = operation == "feed" ? items : [],
+                Outputs = operation == "feed" ? [] : items,
+                InputsComplete = operation != "feed" || items.Count > 0,
+                OutputsComplete = operation == "feed" || items.Count > 0,
+                FocusUsed = 0
+            });
         }
     }
 

@@ -82,3 +82,27 @@ public sealed record FarmingPickupItem
     public string UniqueName { get; init; } = string.Empty;
     public int Quantity { get; init; }
 }
+
+/// <summary>A confirmed farming action, independent of mutable island snapshots.</summary>
+public sealed record FarmingAction : FarmingContext
+{
+    public string EventId { get; init; } = string.Empty;
+    public DateTime OccurredAt { get; init; }
+    public string Operation { get; init; } = string.Empty;
+    public string? SourceObjectId { get; init; }
+    public List<FarmingActionItem> Inputs { get; init; } = [];
+    public List<FarmingActionItem> Outputs { get; init; } = [];
+    // Unknown expenditure differs from an action that does not use focus.
+    public int? FocusUsed { get; init; }
+    public bool InputsComplete { get; init; } = true;
+    public bool OutputsComplete { get; init; } = true;
+}
+
+public sealed record FarmingActionItem
+{
+    public string UniqueName { get; init; } = string.Empty;
+    public int Quantity { get; init; }
+    public int Quality { get; init; } = 1;
+    public long? ObservedEmv { get; init; }
+    public DateTime? EmvObservedAt { get; init; }
+}

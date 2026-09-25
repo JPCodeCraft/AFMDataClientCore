@@ -60,6 +60,25 @@ Listen to `UploadResult`, `QueueChanged` and `PowSolved` for presentation. Resul
 
 The host configures Serilog or bridges it into its logger. Keep packet detail logging behind host-controlled debug settings. AFM and backend clients need their respective base addresses; public requests use the captured Albion server's PoW URL. The host owns authentication storage and must raise `AccountChanged` for identity changes, not routine token refreshes.
 
+### Farming activity
+
+`WithIslands()` observes item identities and EMV as well as island state. It does
+not enable the independent EMV upload feature. Confirmed farming actions carry
+input/output items, optional observed unit EMV, and nullable focus expenditure.
+Incomplete quantities remain explicit; snapshot changes alone are not actions.
+
+Activity uploads require backend schema 3. Existing durable pickup entries drain
+as schema 1/2 before action batches; a new harvest is sent only once as an action.
+Snapshot-only uploads keep their previous schema. The account outbox preserves
+an additive `Actions` collection and captured prices across retries.
+`FarmingUploadSummary.Actions` reports uploaded action count, while `Pickups`
+continues to count only legacy entries.
+
+Update the backend before adopting the new client pin. Live verification must
+cover seed/animal placement and returns, feeding, watering/nurturing, focus costs,
+and cancellations; see the desktop farming integration notes for the capture
+procedure and packet mappings. There is no client-side historical price lookup.
+
 ## Consume and update the library
 
 Both applications keep the same relative layout:
