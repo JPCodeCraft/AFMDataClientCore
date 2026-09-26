@@ -10,6 +10,7 @@ namespace AlbionDataAvalonia.Network.Events;
 public sealed class NewBuildingEvent : BaseEvent
 {
     public long SessionId { get; private set; }
+    public int? PlaceableTypeIndex { get; private set; }
     public int? RenovationState { get; private set; }
     public FarmingObjectObservation? Object { get; private set; }
 
@@ -29,6 +30,7 @@ public sealed class NewBuildingEvent : BaseEvent
             if (rotation is not null && (!double.IsFinite(rotation.Value) || Math.Abs(rotation.Value) > 100_000)) return;
             var sessionId = Number(parameters, 0);
             SessionId = sessionId;
+            if (parameters.ContainsKey(2)) PlaceableTypeIndex = checked((int)Number(parameters, 2));
             if (isPlot && parameters.ContainsKey(29))
             {
                 var renovation = Number(parameters, 29);

@@ -72,6 +72,7 @@ internal static class PacketFactory
             [typeof(AlbionDataAvalonia.Network.Requests.InventoryMoveGivenItemsRequest)] = p => new AlbionDataAvalonia.Network.Requests.InventoryMoveGivenItemsRequest(p),
             [typeof(AlbionDataAvalonia.Network.Requests.InventoryMoveItemRequest)] = p => new AlbionDataAvalonia.Network.Requests.InventoryMoveItemRequest(p),
             [typeof(AlbionDataAvalonia.Network.Requests.PlaceableObjectPlaceRequest)] = p => new AlbionDataAvalonia.Network.Requests.PlaceableObjectPlaceRequest(p),
+            [typeof(AlbionDataAvalonia.Network.Requests.PlaceableObjectPlaceCancelRequest)] = p => new AlbionDataAvalonia.Network.Requests.PlaceableObjectPlaceCancelRequest(p),
             [typeof(AlbionDataAvalonia.Network.Responses.AssetOverviewResponse)] = p => new AlbionDataAvalonia.Network.Responses.AssetOverviewResponse(p),
             [typeof(AlbionDataAvalonia.Network.Responses.AssetOverviewTabContentResponse)] = p => new AlbionDataAvalonia.Network.Responses.AssetOverviewTabContentResponse(p),
             [typeof(AlbionDataAvalonia.Network.Responses.AssetOverviewTabsResponse)] = p => new AlbionDataAvalonia.Network.Responses.AssetOverviewTabsResponse(p),

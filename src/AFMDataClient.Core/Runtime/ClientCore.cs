@@ -268,6 +268,7 @@ public sealed class ClientCore : IDisposable
             builder.SubscribeResponse<FarmingActionResponse>((int)operation, value => { tracker.OnActionResponse(operation, value); return Task.CompletedTask; }, 100);
         }
         builder.SubscribeRequest<PlaceableObjectPlaceRequest>((int)OperationCodes.PlaceableObjectPlace, value => { tracker.OnPlacementRequest(value); return Task.CompletedTask; }, 100);
+        builder.SubscribeRequest<PlaceableObjectPlaceCancelRequest>((int)OperationCodes.PlaceableObjectPlaceCancel, value => { tracker.OnPlacementCancelled(value); return Task.CompletedTask; }, 100);
         builder.SubscribeResponse<PlaceableObjectPlaceResponse>((int)OperationCodes.PlaceableObjectPlace, value => { tracker.OnPlacementResponse(value); return Task.CompletedTask; }, 100);
         builder.SubscribeRequest<BoostFarmableRequest>((int)OperationCodes.BoostFarmable, value => { tracker.OnBoostRequest(value); return Task.CompletedTask; }, 100);
         builder.SubscribeEvent<BoostFarmableEvent>((int)EventCodes.BoostFarmable, value => { tracker.OnBoostEvent(value); return Task.CompletedTask; }, 100);

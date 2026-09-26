@@ -7,11 +7,13 @@ namespace AlbionDataAvalonia.Farming;
 
 public sealed partial class FarmingTrackerService
 {
+    private static readonly TimeSpan PlacementEvidenceWindow = TimeSpan.FromSeconds(10);
     private readonly Dictionary<(string Connection, long Id), InventoryItem> inventoryItems = new();
     private readonly Dictionary<(string Name, int Quality), EmvObservation> observedPrices = new();
     private readonly Dictionary<(string Connection, long Timestamp), Placement> placements = new();
     private readonly Dictionary<(string Connection, long Timestamp), DateTime> completedPlacements = new();
     private readonly Dictionary<(string Connection, long Id), ConfirmedPlacement> pendingPlacementObjects = new();
+    private readonly HashSet<string> seenPlacementObjects = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Connection, byte Sequence, long Target), Boost> boosts = new();
     private readonly Dictionary<(string Connection, byte Sequence, long Target, long Timestamp), DateTime> completedBoosts = new();
     private readonly Dictionary<(string Connection, long Timestamp), DateTime> seenFocusChanges = new();
@@ -27,12 +29,14 @@ public sealed partial class FarmingTrackerService
         if (inventoryItems.TryGetValue(key, out var previous) && previous.ObservedAt > capturedAt) return;
         inventoryItems[key] = new(item.ItemUniqueName, item.Quality, item.Quantity, capturedAt);
         ObservePrice(item.ItemUniqueName, item.Quality, item.EstimatedMarketValue, capturedAt);
+        ObservePlacementInventoryChange(connection, id, previous, inventoryItems[key], capturedAt);
         ObservePickupInventoryItem(connection, id, previous, inventoryItems[key]);
     });
 
     public void OnInventoryItemDeleted(InventoryDeleteItemEvent packet) => Observe(() =>
     {
-        inventoryItems.Remove((packet.ConnectionId, packet.ItemObjectId));
+        if (inventoryItems.Remove((packet.ConnectionId, packet.ItemObjectId), out var previous))
+            ObservePlacementInventoryChange(packet.ConnectionId, packet.ItemObjectId, previous, null, packet.CapturedAt);
         ForgetPickupInventoryItem(packet.ConnectionId, packet.ItemObjectId);
     });
 
@@ -73,8 +77,24 @@ public sealed partial class FarmingTrackerService
         inventoryItems.TryGetValue((packet.ConnectionId, itemId), out var item);
         ConfirmPickupInventoryContainer(packet.ConnectionId, itemId);
         // Capture the price before the request removes the inventory stack.
+        if (item?.ObservedAt > packet.CapturedAt || item?.Quantity <= 0) item = null;
         var input = item is null ? null : ActivityItem(item.Name, 1, item.Quality, packet.CapturedAt);
-        placements[key] = new(Guid.NewGuid().ToString(), packet.CapturedAt, island, input);
+        placements[key] = new(Guid.NewGuid().ToString(), packet.CapturedAt, island, input,
+            itemId, item, packet.PlaceableTypeIndex, packet.PositionX, packet.PositionY);
+    });
+
+    public void OnPlacementCancelled(PlaceableObjectPlaceCancelRequest packet) => Observe(() =>
+    {
+        PruneActivity();
+        // This request has no identifier. Retire pending, unconsumed requests on
+        // its connection; an already observed loss can still await its world event.
+        foreach (var key in placements.Where(entry => entry.Key.Connection == packet.ConnectionId
+            && entry.Value.RequestedAt <= packet.CapturedAt && entry.Value.ConsumedAt is null)
+            .Select(entry => entry.Key).ToArray())
+        {
+            placements.Remove(key);
+            completedPlacements[key] = packet.CapturedAt;
+        }
     });
 
     public void OnPlacementResponse(PlaceableObjectPlaceResponse packet) => Observe(() =>
@@ -99,10 +119,77 @@ public sealed partial class FarmingTrackerService
 
     private void ObservePlacementDestination(NewBuildingEvent packet, FarmingObjectObservation destination)
     {
-        if (!pendingPlacementObjects.Remove((packet.ConnectionId, packet.SessionId), out var pending)) return;
-        if (destination.Kind == "farmable" && packet.CapturedAt >= pending.Placement.RequestedAt
+        if (pendingPlacementObjects.Remove((packet.ConnectionId, packet.SessionId), out var pending)
+            && destination.Kind == "farmable" && packet.CapturedAt >= pending.Placement.RequestedAt
             && packet.CapturedAt - pending.OccurredAt <= RequestLifetime)
             EnqueuePlacementAction(pending.Placement, pending.OccurredAt, destination);
+
+        // Live placements can omit the operation response. A new world object
+        // alone is not usage: require the local request and exact inventory loss.
+        // Remember identities across visibility loss so re-entry cannot confirm one.
+        if (seenPlacementObjects.Count >= MaxTransientEntries || !seenPlacementObjects.Add(destination.ObjectId)
+            || island is null || destination.Kind != "farmable" || packet.PlaceableTypeIndex is null) return;
+        PruneActivity();
+        var candidates = placements.Where(entry => entry.Key.Connection == packet.ConnectionId
+            && !entry.Value.Ambiguous && entry.Value.RequestedAt <= packet.CapturedAt
+            && packet.CapturedAt - entry.Value.RequestedAt <= PlacementEvidenceWindow
+            && entry.Value.PlaceableTypeIndex == packet.PlaceableTypeIndex
+            && entry.Value.PositionX is { } x && Math.Abs(x - destination.PositionX) < 0.01
+            && entry.Value.PositionY is { } y && Math.Abs(y - destination.PositionY) < 0.01
+            && entry.Value.Item is { } item && SamePickupFamily(destination.UniqueName, item.UniqueName)).ToArray();
+        if (candidates.Length != 1) return;
+        var candidate = candidates[0];
+        if (candidate.Value.Destination is not null) candidate.Value.Ambiguous = true;
+        candidate.Value.Destination = destination;
+        candidate.Value.DestinationAt = packet.CapturedAt;
+        TryCompleteObservedPlacement(candidate.Key, candidate.Value);
+    }
+
+    private void ObservePlacementInventoryChange(string connection, long id, InventoryItem? previous,
+        InventoryItem? current, DateTime capturedAt)
+    {
+        if (island is null || previous is null || (current is null && previous.Quantity == 0)
+            || (current is not null && previous.Name == current.Name
+            && previous.Quality == current.Quality && previous.Quantity == current.Quantity)) return;
+        var candidates = placements.Where(entry => entry.Key.Connection == connection
+            && entry.Value.InventoryItemId == id && entry.Value.ConsumedAt is null && !entry.Value.Ambiguous
+            && entry.Value.RequestedAt <= capturedAt
+            && capturedAt - entry.Value.RequestedAt <= PlacementEvidenceWindow).ToArray();
+        // A previously consumed seed can still be waiting for its world event
+        // while the next request consumes another seed from this same stack.
+        foreach (var candidate in candidates)
+        {
+            var baseline = candidate.Value.Baseline;
+            if (baseline is null || baseline.Name != previous.Name || baseline.Quality != previous.Quality
+                || baseline.Quantity != previous.Quantity) candidate.Value.Ambiguous = true;
+        }
+        candidates = candidates.Where(candidate => !candidate.Value.Ambiguous).ToArray();
+        foreach (var candidate in candidates)
+        {
+            var placement = candidate.Value;
+            var baseline = placement.Baseline;
+            if (candidates.Length != 1 || baseline is null
+                || (current is not null && (current.Name != baseline.Name || current.Quality != baseline.Quality))
+                || (long)previous.Quantity - (current?.Quantity ?? 0) != 1)
+            {
+                placement.Ambiguous = true;
+                continue;
+            }
+            placement.ConsumedAt = capturedAt;
+            TryCompleteObservedPlacement(candidate.Key, placement);
+        }
+    }
+
+    private void TryCompleteObservedPlacement((string Connection, long Timestamp) key, Placement placement)
+    {
+        if (placement.Ambiguous || placement.ConsumedAt is not { } consumedAt
+            || placement.DestinationAt is not { } destinationAt || placement.Destination is not { } destination) return;
+        var occurredAt = consumedAt > destinationAt ? consumedAt : destinationAt;
+        if (pickupInventoryMoves.TryGetValue(key.Connection, out var movedAt)
+            && movedAt >= placement.RequestedAt && movedAt <= occurredAt) return;
+        if (!placements.Remove(key)) return;
+        completedPlacements[key] = occurredAt;
+        EnqueuePlacementAction(placement, occurredAt, destination);
     }
 
     private void EnqueuePlacementAction(Placement placement, DateTime occurredAt, FarmingObjectObservation? placed)
@@ -191,6 +278,7 @@ public sealed partial class FarmingTrackerService
         placements.Clear();
         completedPlacements.Clear();
         pendingPlacementObjects.Clear();
+        seenPlacementObjects.Clear();
         boosts.Clear();
         completedBoosts.Clear();
         seenFocusChanges.Clear();
@@ -212,7 +300,15 @@ public sealed partial class FarmingTrackerService
     private static bool ValidItemName(string name) => !string.IsNullOrWhiteSpace(name) && name.Length <= 200 && name is not ("Unset" or "Unknown Item");
     private sealed record InventoryItem(string Name, int Quality, int Quantity, DateTime ObservedAt);
     private sealed record EmvObservation(long Value, DateTime ObservedAt);
-    private sealed record Placement(string EventId, DateTime RequestedAt, FarmingIslandObservation Island, FarmingActionItem? Item);
+    private sealed record Placement(string EventId, DateTime RequestedAt, FarmingIslandObservation Island,
+        FarmingActionItem? Item, long InventoryItemId, InventoryItem? Baseline, int? PlaceableTypeIndex,
+        double? PositionX, double? PositionY)
+    {
+        public DateTime? ConsumedAt { get; set; }
+        public FarmingObjectObservation? Destination { get; set; }
+        public DateTime? DestinationAt { get; set; }
+        public bool Ambiguous { get; set; }
+    }
     private sealed record ConfirmedPlacement(Placement Placement, DateTime OccurredAt);
     private sealed record Boost(string EventId, DateTime RequestedAt, long ActionTimestamp, FarmingIslandObservation Island, string? SourceObjectId)
     {

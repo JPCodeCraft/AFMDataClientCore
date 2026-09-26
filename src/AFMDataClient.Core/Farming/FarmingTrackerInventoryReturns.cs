@@ -14,6 +14,20 @@ public sealed partial class FarmingTrackerService
     private readonly Dictionary<string, DateTime> pickupInventoryMoves = new();
     private readonly Dictionary<string, PickupReturnEvidence> pickupInventoryReturns = new();
 
+    private void InitializePickupInventoryFromJoin(JoinResponse packet)
+    {
+        if (packet.ReturnCode != 0 || island is null || localObjectId != packet.userObjectId
+            || packet.MainInventoryContainerId is not { } container) return;
+        var connection = packet.ConnectionId;
+        if (pickupInventoryContainers.Count >= MaxTransientEntries && !pickupInventoryContainers.ContainsKey(connection)) return;
+        if (pickupInventoryContainers.TryGetValue(connection, out var previous) && previous != container)
+            InvalidatePickupReturns(connection);
+        pickupInventoryContainers[connection] = container;
+        // NewSimpleItem snapshots can precede Join. Establish their membership
+        // without clearing their already observed identities or stack counts.
+        ApplyPickupInventoryState(connection, container, packet.MainInventoryItemObjectIds, packet.CapturedAt);
+    }
+
     public void OnPickupInventoryPut(InventoryPutItemEvent packet) => Observe(() =>
     {
         if ((!joining && island is null) || packet.ItemObjectId <= 0 || packet.ContainerId == Guid.Empty) return;
@@ -23,16 +37,21 @@ public sealed partial class FarmingTrackerService
     public void OnPickupInventoryState(InventoryStateEvent packet) => Observe(() =>
     {
         if ((!joining && island is null) || packet.ContainerId is not { } container) return;
-        var present = packet.ItemObjectIds.Where(id => id > 0).ToHashSet();
+        ApplyPickupInventoryState(packet.ConnectionId, container, packet.ItemObjectIds, packet.CapturedAt);
+    });
+
+    private void ApplyPickupInventoryState(string connection, Guid container, IReadOnlyList<long> itemIds, DateTime observedAt)
+    {
+        var present = itemIds.Where(id => id > 0).ToHashSet();
         foreach (var (key, membership) in pickupInventoryMembership.ToArray())
         {
-            if (key.Connection == packet.ConnectionId && membership.Container == container
-                && membership.ObservedAt <= packet.CapturedAt && !present.Contains(key.Id))
+            if (key.Connection == connection && membership.Container == container
+                && membership.ObservedAt <= observedAt && !present.Contains(key.Id))
                 ForgetPickupInventoryItem(key.Connection, key.Id);
         }
         foreach (var id in present)
-            SetPickupInventoryMembership(packet.ConnectionId, id, container, packet.CapturedAt, false);
-    });
+            SetPickupInventoryMembership(connection, id, container, observedAt, false);
+    }
 
     // A local placement explicitly identifies its source inventory object. Its
     // observed container establishes the bag without treating every open chest

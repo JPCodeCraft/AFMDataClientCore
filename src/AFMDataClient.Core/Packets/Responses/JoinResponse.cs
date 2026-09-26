@@ -12,6 +12,8 @@ public class JoinResponse : BaseOperation
     public string? IslandId { get; }
     public string? RawLocationId { get; }
     public string? IslandHomeCluster { get; }
+    public Guid? MainInventoryContainerId { get; private set; }
+    public IReadOnlyList<long> MainInventoryItemObjectIds { get; private set; } = [];
     public readonly AlbionLocation playerLocation;
     public readonly string playerName;
     public readonly long userObjectId;
@@ -93,5 +95,20 @@ public class JoinResponse : BaseOperation
         {
             Log.Error(e, e.Message);
         }
+        FarmingPacketValues.TryRead(() =>
+        {
+            // Join supplies the main inventory container/items at 54/55.
+            // This pair matches subsequent InventoryPut
+            // destinations and the source objects used for farming actions.
+            if (!parameters.TryGetValue(54, out var rawContainer)
+                || !parameters.TryGetValue(55, out var rawItems)
+                || rawItems is not Array { Rank: 1 } array || array.Length > 4096) return;
+            var container = rawContainer.ToGuid();
+            if (container is null || container == Guid.Empty) return;
+            var items = rawItems.ToLongArray();
+            if (items.Any(id => id < 0)) return;
+            MainInventoryContainerId = container;
+            MainInventoryItemObjectIds = items;
+        });
     }
 }

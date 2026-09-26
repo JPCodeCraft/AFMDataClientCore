@@ -267,6 +267,7 @@ public sealed partial class FarmingTrackerService : IDisposable
             HomeCluster = metadata?.HomeCluster ?? value.IslandHomeCluster,
             LayoutId = metadata?.LayoutId
         };
+        InitializePickupInventoryFromJoin(value);
         uploader.EnqueueIsland(accountId!, island);
         foreach (var (id, observation) in objects.ToArray())
         {
