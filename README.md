@@ -67,12 +67,12 @@ not enable the independent EMV upload feature. Confirmed farming actions carry
 input/output items, optional observed unit EMV, and nullable focus expenditure.
 Incomplete quantities remain explicit; snapshot changes alone are not actions.
 
-Activity uploads require backend schema 3. Existing durable pickup entries drain
-as schema 1/2 before action batches; a new harvest is sent only once as an action.
-Snapshot-only uploads keep their previous schema. The account outbox preserves
-an additive `Actions` collection and captured prices across retries.
-`FarmingUploadSummary.Actions` reports uploaded action count, while `Pickups`
-continues to count only legacy entries.
+All farming uploads use schema 3 with `islands`, `objects`, and `actions` arrays,
+including snapshot-only batches. No pickup upload contract remains. Existing
+durable pickup entries are converted to output-only actions when loaded, retaining
+their event IDs, timestamps, quantities, and unknown input/focus status. Conversion
+is persisted before uploading. The disk-only reader preserves pending observations;
+the active queue and `FarmingUploadSummary` report actions only.
 
 Update the backend before adopting the new client pin. Live verification must
 cover seed/animal placement and returns, feeding, watering/nurturing, focus costs,

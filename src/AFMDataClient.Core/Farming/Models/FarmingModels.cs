@@ -68,15 +68,6 @@ public sealed record FarmingNutrition
     public DateTime? UpdatedAt { get; init; }
 }
 
-public sealed record FarmingPickup : FarmingContext
-{
-    public string EventId { get; init; } = string.Empty;
-    public DateTime OccurredAt { get; init; }
-    public string Operation { get; init; } = string.Empty;
-    public string? SourceObjectId { get; init; }
-    public List<FarmingPickupItem> Items { get; init; } = [];
-}
-
 public sealed record FarmingPickupItem
 {
     public string UniqueName { get; init; } = string.Empty;

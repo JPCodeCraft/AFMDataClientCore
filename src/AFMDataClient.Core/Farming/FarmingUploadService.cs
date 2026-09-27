@@ -82,11 +82,6 @@ public sealed class FarmingUploadService : IDisposable
         return Enqueue(accountId, value);
     }
 
-    public bool EnqueuePickup(string accountId, FarmingPickup value)
-    {
-        return Enqueue(accountId, value);
-    }
-
     public bool EnqueueAction(string accountId, FarmingAction value)
     {
         return Enqueue(accountId, value);
@@ -207,7 +202,7 @@ public sealed class FarmingUploadService : IDisposable
                 await UploadBatchAsync(current).ConfigureAwait(false);
             }
             var pending = _authService.AccountId is { } activeAccount && _outboxes.TryGetValue(activeAccount, out var activeOutbox)
-                ? activeOutbox.Islands.Count + activeOutbox.Objects.Count + activeOutbox.Pickups.Count + activeOutbox.Actions.Count : 0;
+                ? activeOutbox.Islands.Count + activeOutbox.Objects.Count + activeOutbox.Actions.Count : 0;
             if (Interlocked.Exchange(ref pendingCount, pending) != pending) ActivityChanged.Publish();
         }
 
@@ -246,6 +241,7 @@ public sealed class FarmingUploadService : IDisposable
                 }
 
                 outbox = stored;
+                ConvertStoredPickups(outbox);
             }
             catch (Exception ex) when (ex is JsonException or InvalidDataException)
             {
@@ -272,6 +268,37 @@ public sealed class FarmingUploadService : IDisposable
 
         _outboxes.Add(accountId, outbox);
         return outbox;
+    }
+
+    private static void ConvertStoredPickups(AccountOutbox outbox)
+    {
+        if (outbox.Pickups.Count == 0) return;
+        // Preserve pending observations from disk without retaining their old API.
+        // Reusing event IDs keeps retries idempotent if the old upload succeeded.
+        foreach (var pickup in outbox.Pickups.Values)
+        {
+            outbox.Actions.TryAdd(pickup.EventId, new FarmingAction
+            {
+                ServerId = pickup.ServerId,
+                CharacterId = pickup.CharacterId,
+                CharacterName = pickup.CharacterName,
+                IslandId = pickup.IslandId,
+                EventId = pickup.EventId,
+                OccurredAt = pickup.OccurredAt,
+                Operation = pickup.Operation,
+                SourceObjectId = pickup.SourceObjectId,
+                Outputs = pickup.Items.Select(item => new FarmingActionItem
+                {
+                    UniqueName = item.UniqueName,
+                    Quantity = item.Quantity
+                }).ToList(),
+                InputsComplete = false,
+                OutputsComplete = true,
+                FocusUsed = null
+            });
+        }
+        outbox.Pickups.Clear();
+        outbox.Dirty = true;
     }
 
     private static void Apply(AccountOutbox outbox, FarmingContext value)
@@ -315,9 +342,6 @@ public sealed class FarmingUploadService : IDisposable
                     outbox.Dirty = true;
                 }
                 break;
-            case FarmingPickup pickup:
-                outbox.Dirty |= outbox.Pickups.TryAdd(key, pickup);
-                break;
             case FarmingAction action:
                 outbox.Dirty |= outbox.Actions.TryAdd(key, action);
                 break;
@@ -343,7 +367,6 @@ public sealed class FarmingUploadService : IDisposable
 
     private static string GetPendingKey(FarmingContext value)
     {
-        if (value is FarmingPickup pickup) return pickup.EventId;
         if (value is FarmingAction action) return action.EventId;
         var key = $"{value.ServerId}:{value.CharacterId}:{value.IslandId}";
         return value is FarmingObjectObservation farmObject ? $"{key}:{farmObject.ObjectId}" : key;
@@ -383,7 +406,7 @@ public sealed class FarmingUploadService : IDisposable
         }
 
         var batch = BuildBatch(outbox);
-        if (batch.Islands.Count + batch.Objects.Count + batch.Pickups.Count + batch.Actions.Count == 0)
+        if (batch.Islands.Count + batch.Objects.Count + batch.Actions.Count == 0)
         {
             return;
         }
@@ -433,14 +456,13 @@ public sealed class FarmingUploadService : IDisposable
             status = UploadStatus.Success;
             RemoveAccepted(outbox.Islands, batch.Islands);
             RemoveAccepted(outbox.Objects, batch.Objects);
-            RemoveAccepted(outbox.Pickups, batch.Pickups);
             RemoveAccepted(outbox.Actions, batch.Actions);
             outbox.Dirty = true;
             outbox.Failures = 0;
             outbox.NextAttemptAtUtc = DateTime.UtcNow + UploadInterval;
             await PersistAsync(outbox).ConfigureAwait(false);
-            Log.Information("Farming upload complete. {IslandCount} islands, {ObjectCount} objects, {PickupCount} legacy pickups and {ActionCount} actions. Identifier: {identifier}",
-                batch.Islands.Count, batch.Objects.Count, batch.Pickups.Count, batch.Actions.Count, identifier);
+            Log.Information("Farming upload complete. {IslandCount} islands, {ObjectCount} objects and {ActionCount} actions. Identifier: {identifier}",
+                batch.Islands.Count, batch.Objects.Count, batch.Actions.Count, identifier);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -456,8 +478,8 @@ public sealed class FarmingUploadService : IDisposable
         {
             if (status.HasValue && !cancellation.IsCancellationRequested)
             {
-                var servers = batch.Islands.Cast<FarmingContext>().Concat(batch.Objects).Concat(batch.Pickups).Concat(batch.Actions).Select(value => value.ServerId).Distinct().ToArray();
-                UploadCompleted.Publish(status.Value, identifier, new(servers, batch.Islands.Count, batch.Objects.Count, batch.Pickups.Count, batch.Actions.Count));
+                var servers = batch.Islands.Cast<FarmingContext>().Concat(batch.Objects).Concat(batch.Actions).Select(value => value.ServerId).Distinct().ToArray();
+                UploadCompleted.Publish(status.Value, identifier, new(servers, batch.Islands.Count, batch.Objects.Count, batch.Actions.Count));
             }
             Interlocked.Decrement(ref runningCount);
             ActivityChanged.Publish();
@@ -525,10 +547,7 @@ public sealed class FarmingUploadService : IDisposable
         var bytes = JsonSerializer.SerializeToUtf8Bytes(batch, SerializerOptions).Length;
 
         // Immutable activity takes priority over the coalesced object snapshots.
-        AddToBatch(outbox.Pickups.Values, batch.Pickups, 100, ref bytes);
-        // Drain legacy records in their original wire shape. Version 3 must not
-        // send the same output through both the pickup and action contracts.
-        if (batch.Pickups.Count == 0) AddToBatch(outbox.Actions.Values, batch.Actions, 100, ref bytes);
+        AddToBatch(outbox.Actions.Values, batch.Actions, 100, ref bytes);
         AddToBatch(outbox.Islands.Values, batch.Islands, 100, ref bytes);
         // Parents precede their contents even when the byte limit splits a visit across batches.
         AddToBatch(outbox.Objects.Values.Where(value => value.Kind == "plot")
@@ -613,7 +632,8 @@ public sealed class FarmingUploadService : IDisposable
         public string AccountId { get; set; } = string.Empty;
         public Dictionary<string, FarmingIslandObservation> Islands { get; set; } = new(StringComparer.Ordinal);
         public Dictionary<string, FarmingObjectObservation> Objects { get; set; } = new(StringComparer.Ordinal);
-        public Dictionary<string, FarmingPickup> Pickups { get; set; } = new(StringComparer.Ordinal);
+        // Disk-only compatibility: converted into Actions before any upload.
+        public Dictionary<string, LegacyFarmingPickup> Pickups { get; set; } = new(StringComparer.Ordinal);
         public Dictionary<string, FarmingAction> Actions { get; set; } = new(StringComparer.Ordinal);
         [JsonIgnore] public bool Dirty { get; set; }
         [JsonIgnore] public bool StorageUnavailable { get; set; }
@@ -623,15 +643,19 @@ public sealed class FarmingUploadService : IDisposable
 
     private sealed class UploadBatch
     {
-        // Older backends must reject these batches instead of interpreting an
-        // unknown assumed-removal flag as a permanent building retirement.
-        public int SchemaVersion => Actions.Count > 0 ? 3 : Objects.Any(value => value.RemovalAssumed == true) ? 2 : 1;
+        public int SchemaVersion => 3;
         public List<FarmingIslandObservation> Islands { get; } = [];
         public List<FarmingObjectObservation> Objects { get; } = [];
-        public List<FarmingPickup> Pickups { get; } = [];
-        [JsonIgnore] public List<FarmingAction> Actions { get; } = [];
-        [JsonPropertyName("actions")]
-        public IReadOnlyList<FarmingAction>? UploadedActions => Actions.Count > 0 ? Actions : null;
+        public List<FarmingAction> Actions { get; } = [];
+    }
+
+    private sealed record LegacyFarmingPickup : FarmingContext
+    {
+        public string EventId { get; init; } = string.Empty;
+        public DateTime OccurredAt { get; init; }
+        public string Operation { get; init; } = string.Empty;
+        public string? SourceObjectId { get; init; }
+        public List<FarmingPickupItem> Items { get; init; } = [];
     }
 
     private sealed class UploadResponse
