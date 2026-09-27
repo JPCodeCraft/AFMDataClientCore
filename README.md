@@ -67,6 +67,14 @@ not enable the independent EMV upload feature. Confirmed farming actions carry
 input/output items, optional observed unit EMV, and nullable focus expenditure.
 Incomplete quantities remain explicit; snapshot changes alone are not actions.
 
+Farming correlation retains short-lived inventory and focus evidence across
+interleaved requests and delayed responses. Placement still requires confirmed
+success or both a new farmable and inventory consumption. Pickup returns retain
+request-time inventory identity, and watering/nurturing costs are matched to
+completed actions after canceled attempts are excluded. Delayed confirmation can
+add a few seconds before upload; missing or ambiguous evidence stays unknown.
+Inventory transfers are excluded using their affected items and containers.
+
 All farming uploads use schema 3 with `islands`, `objects`, and `actions` arrays,
 including snapshot-only batches. No pickup upload contract remains. Existing
 durable pickup entries are converted to output-only actions when loaded, retaining

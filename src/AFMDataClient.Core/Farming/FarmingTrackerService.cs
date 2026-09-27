@@ -55,13 +55,14 @@ public sealed partial class FarmingTrackerService : IDisposable
         serverId = player.AlbionServer?.Id;
         auth.AccountChanged += OnAuthChanged;
         settings.Changed += OnSettingsChanged;
-        demolitionTimer = new Timer(_ => ExpireDemolitions(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        demolitionTimer = new Timer(_ => { ExpireDemolitions(); FlushActivity(); }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
     public void Dispose()
     {
         lock (sync)
         {
+            ResetActivityState();
             disposed = true;
             demolitions.Clear();
         }
@@ -137,9 +138,9 @@ public sealed partial class FarmingTrackerService : IDisposable
         foreach (var key in demolitions.Where(entry => !entry.Value.Confirmed || entry.Value.Duration is null)
             .Select(entry => entry.Key).ToArray()) demolitions.Remove(key);
         pendingStates.Clear();
+        ResetActivityState();
         actions.Clear();
         completedActions.Clear();
-        ResetActivityState();
     }
 
     public void OnLeave(long objectId) => Observe(() =>
@@ -198,6 +199,7 @@ public sealed partial class FarmingTrackerService : IDisposable
         if (actions.Count >= MaxTransientEntries) return;
         objects.TryGetValue(target, out var source);
         actions[key] = new PendingAction(Guid.NewGuid().ToString(), value.CapturedAt, island, target, source);
+        if (operation == OperationCodes.PlaceableObjectPickup) BeginPickupInventoryReturn(value.ConnectionId, actions[key]);
     });
 
     public void OnActionResponse(OperationCodes operation, FarmingActionResponse value) => Observe(() =>
@@ -205,7 +207,8 @@ public sealed partial class FarmingTrackerService : IDisposable
         if (value.RequestId is not { } requestId) return;
         if (value.ReturnCode != 0)
         {
-            actions.Remove((value.ConnectionId, (short)operation, requestId));
+            if (actions.Remove((value.ConnectionId, (short)operation, requestId), out var failed))
+                CancelPickupInventoryReturn(failed);
             return;
         }
         CompleteAction(operation, value);
@@ -549,8 +552,13 @@ public sealed partial class FarmingTrackerService : IDisposable
             // Placeable pickup is also used for furniture. Only island farmables
             // belong in this ledger; never count a plot or an unrelated object.
             if (operation == "pickup" && action.Source?.Kind != "farmable") return;
-            var items = operation == "pickup" ? CompletePickupInventoryReturn(action, packet)
-                : packet.Items.Select(item => ActivityItem(item.UniqueName, item.Quantity, 1, packet.CapturedAt)).ToList();
+            if (operation == "pickup")
+            {
+                QueuePickupInventoryReturn(action, packet);
+                return;
+            }
+            if (operation != "feed") ObserveOtherFarmingReturn(packet.ConnectionId, action, packet);
+            var items = packet.Items.Select(item => ActivityItem(item.UniqueName, item.Quantity, 1, packet.CapturedAt)).ToList();
             uploader.EnqueueAction(accountId!, new FarmingAction
             {
                 ServerId = action.Island.ServerId,

@@ -276,8 +276,8 @@ public sealed class ClientCore : IDisposable
         builder.SubscribeEvent<InventoryDeleteItemEvent>((int)EventCodes.InventoryDeleteItem, value => { tracker.OnInventoryItemDeleted(value); return Task.CompletedTask; }, 100);
         builder.SubscribeEvent<InventoryPutItemEvent>((int)EventCodes.InventoryPutItem, value => { tracker.OnPickupInventoryPut(value); return Task.CompletedTask; }, 100);
         builder.SubscribeEvent<InventoryStateEvent>((int)EventCodes.InventoryState, value => { tracker.OnPickupInventoryState(value); return Task.CompletedTask; }, 100);
-        builder.SubscribeRequest<InventoryMoveItemRequest>((int)OperationCodes.InventoryMoveItem, value => { tracker.OnPickupInventoryMove(value.ConnectionId, value.CapturedAt); return Task.CompletedTask; }, 100);
-        builder.SubscribeRequest<InventoryMoveGivenItemsRequest>((int)OperationCodes.InventoryMoveGivenItems, value => { tracker.OnPickupInventoryMove(value.ConnectionId, value.CapturedAt); return Task.CompletedTask; }, 100);
+        builder.SubscribeRequest<InventoryMoveItemRequest>((int)OperationCodes.InventoryMoveItem, value => { tracker.OnPickupInventoryMove(value); return Task.CompletedTask; }, 100);
+        builder.SubscribeRequest<InventoryMoveGivenItemsRequest>((int)OperationCodes.InventoryMoveGivenItems, value => { tracker.OnPickupInventoryMove(value); return Task.CompletedTask; }, 100);
     }
 
     private void RegisterEmv(ReceiverBuilder builder)
