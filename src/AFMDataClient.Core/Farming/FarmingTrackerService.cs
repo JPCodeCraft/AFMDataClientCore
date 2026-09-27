@@ -571,7 +571,7 @@ public sealed partial class FarmingTrackerService : IDisposable
                 SourceObjectId = action.Source?.ObjectId,
                 Inputs = operation == "feed" ? items : [],
                 Outputs = operation == "feed" ? [] : items,
-                InputsComplete = operation != "feed" || items.Count > 0,
+                InputsComplete = operation != "feed" || packet.ItemsDecoded,
                 OutputsComplete = operation == "feed" || items.Count > 0,
                 FocusUsed = 0
             });
