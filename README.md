@@ -72,7 +72,12 @@ interleaved requests and delayed responses. Placement still requires confirmed
 success or both a new farmable and inventory consumption. Pickup returns retain
 request-time inventory identity, and watering/nurturing costs are matched to
 completed actions after canceled attempts are excluded. Delayed confirmation can
-add a few seconds before upload; missing or ambiguous evidence stays unknown.
+add a few seconds before upload. Ambiguous focus groups retain their deductions
+and competing requests for the two-minute request lifetime, allowing late
+confirmations or cancellations to resolve them. Incoming evidence is recorded
+before expiration, and related evidence is retired together. Missing or still
+ambiguous evidence stays unknown; resets can finalize it sooner. Debug logging
+reports unresolved action/deduction counts without enabling raw packet logging.
 Inventory transfers are excluded using their affected items and containers.
 
 All farming uploads use schema 3 with `islands`, `objects`, and `actions` arrays,
@@ -86,6 +91,10 @@ Update the backend before adopting the new client pin. Live verification must
 cover seed/animal placement and returns, feeding, watering/nurturing, focus costs,
 and cancellations; see the desktop farming integration notes for the capture
 procedure and packet mappings. There is no client-side historical price lookup.
+Focus verification should include feeding and nurturing each animal sequentially,
+moving between plots, interrupted nurtures, and delayed packet batches. Normal
+completed actions should keep their two-second settlement delay; unresolved groups
+may remain pending until their confirmation deadline.
 
 ## Consume and update the library
 

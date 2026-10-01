@@ -1,6 +1,7 @@
 using AlbionDataAvalonia.Farming.Models;
 using AlbionDataAvalonia.Network.Events;
 using AlbionDataAvalonia.Network.Requests;
+using Serilog;
 
 namespace AlbionDataAvalonia.Farming;
 
@@ -17,10 +18,10 @@ public sealed partial class FarmingTrackerService
     public void OnBoostRequest(BoostFarmableRequest packet) => Observe(() =>
     {
         if (island is null) return;
-        PruneActivity();
         if (packet.IsCancel)
         {
             CancelBoosts(packet.ConnectionId, packet.ActionSequence, packet.TargetId, packet.CapturedAt);
+            PruneActivity();
             return;
         }
         if (!packet.IsStart || packet.ActionTimestamp is not { } stamp
@@ -31,6 +32,7 @@ public sealed partial class FarmingTrackerService
         if (boosts.Count >= MaxTransientEntries && !boosts.ContainsKey(key)) return;
         objects.TryGetValue(target, out var source);
         boosts[key] = new(Guid.NewGuid().ToString(), accountId!, packet.CapturedAt, stamp, island, source?.ObjectId);
+        PruneActivity();
     });
 
     private void CancelBoosts(string connection, byte? sequence, long? target, DateTime capturedAt)
@@ -52,7 +54,6 @@ public sealed partial class FarmingTrackerService
     {
         if (island is null || localObjectId == 0 || packet.ActorId != localObjectId
             || packet.Timestamp is not { } stamp || packet.FocusDelta is not (< 0 and >= -1_000_000)) return;
-        PruneActivity();
         var amount = -packet.FocusDelta.Value;
         var rounded = Math.Round(amount);
         // Regeneration and unsupported resource shapes must not become expenses.
@@ -61,15 +62,16 @@ public sealed partial class FarmingTrackerService
         var key = (packet.ConnectionId, stamp);
         if (!seenFocusChanges.TryAdd(key, packet.CapturedAt)) return;
         pendingFocusChanges.Add(new(packet.ConnectionId, stamp, packet.CapturedAt, DateTime.UtcNow, (int)rounded));
+        PruneActivity();
     });
 
     public void OnBoostEvent(BoostFarmableEvent packet) => Observe(() =>
     {
         if (island is null || localObjectId == 0 || packet.ActorId != localObjectId) return;
-        PruneActivity();
         if (packet.IsCancelled)
         {
             CancelBoosts(packet.ConnectionId, packet.ActionSequence, packet.TargetId, packet.CapturedAt);
+            PruneActivity();
             return;
         }
         if (!packet.IsCompleted || packet.ActionSequence is not { } sequence || packet.TargetId is not { } target) return;
@@ -82,6 +84,7 @@ public sealed partial class FarmingTrackerService
             return;
         }
         pendingFocusActions.Add(completed);
+        PruneActivity();
     });
 
     private static bool CanMatchFocus(CompletedBoost action, FocusChange change) =>
@@ -136,7 +139,14 @@ public sealed partial class FarmingTrackerService
                 for (var index = 0; index < orderedActions.Length; index++)
                     if (!CanMatchFocus(orderedActions[index], orderedChanges[index])) matched = false;
             }
-            if (!matched && !force && actions.Any(action => now - action.ObservedAt < FocusEvidenceWindow)) continue;
+            // Matching tolerance is not the confirmation deadline. Keep ambiguous
+            // evidence as long as requests can still complete, so a delayed cancel
+            // or completion can resolve the group without discarding its costs.
+            if (!matched && !force && (actions.Any(action => now - action.ObservedAt < RequestLifetime)
+                || changes.Any(change => now - change.ObservedAt < FocusSettlementDelay))) continue;
+            if (!matched)
+                Log.Debug("Farming Focus remained unresolved: {ActionCount} completed actions, {DeductionCount} deductions, pending request: {PendingRequest}, reset: {Reset}",
+                    actions.Count, changes.Count, pendingCandidate, force);
             for (var index = 0; index < orderedActions.Length; index++)
             {
                 EnqueueBoostAction(orderedActions[index], matched ? orderedChanges[index].Amount : null);
@@ -182,10 +192,20 @@ public sealed partial class FarmingTrackerService
     private void PruneFocusState(DateTime cutoff)
     {
         FlushFocusActions(DateTime.UtcNow);
-        foreach (var key in boosts.Where(entry => entry.Value.RequestedAt < cutoff).Select(entry => entry.Key).ToArray()) boosts.Remove(key);
-        foreach (var key in completedBoosts.Where(entry => entry.Value < cutoff).Select(entry => entry.Key).ToArray()) completedBoosts.Remove(key);
-        foreach (var key in seenFocusChanges.Where(entry => entry.Value < cutoff).Select(entry => entry.Key).ToArray()) seenFocusChanges.Remove(key);
-        pendingFocusChanges.RemoveAll(change => change.ObservedAt < cutoff);
+        // Retire related evidence together. A group can include newer actions;
+        // pruning only its older costs or requests could shift a cost to a later
+        // action before that group's confirmation deadline.
+        pendingFocusChanges.RemoveAll(change => change.ObservedAt < cutoff
+            && !pendingFocusActions.Any(action => CanMatchFocus(action, change)));
+        foreach (var key in boosts.Where(entry => entry.Value.RequestedAt < cutoff
+            && !pendingFocusChanges.Any(change => entry.Key.Connection == change.Connection
+                && CanMatchPendingFocus(entry.Value, change))).Select(entry => entry.Key).ToArray()) boosts.Remove(key);
+        foreach (var key in completedBoosts.Where(entry => entry.Value < cutoff
+            && !pendingFocusActions.Any(action => action.Connection == entry.Key.Connection
+                && action.Boost.ActionTimestamp == entry.Key.Timestamp)).Select(entry => entry.Key).ToArray()) completedBoosts.Remove(key);
+        foreach (var key in seenFocusChanges.Where(entry => entry.Value < cutoff
+            && !pendingFocusChanges.Any(change => change.Connection == entry.Key.Connection
+                && change.Timestamp == entry.Key.Timestamp)).Select(entry => entry.Key).ToArray()) seenFocusChanges.Remove(key);
     }
 
     private sealed record Boost(string EventId, string AccountId, DateTime RequestedAt, long ActionTimestamp,
