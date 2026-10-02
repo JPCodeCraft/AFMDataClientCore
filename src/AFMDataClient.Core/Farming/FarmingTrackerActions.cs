@@ -60,7 +60,16 @@ public sealed partial class FarmingTrackerService
         };
     }
 
-    private void FlushActivity() => Observe(PruneActivity);
+    private void FlushActivity()
+    {
+        // Retry already finalized work even when new observation is disabled.
+        lock (sync)
+        {
+            if (disposed) return;
+            FlushReadyFocusActions();
+        }
+        Observe(PruneActivity);
+    }
 
     private void ResetActivityState()
     {

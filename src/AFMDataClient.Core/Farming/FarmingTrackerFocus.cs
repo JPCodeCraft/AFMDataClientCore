@@ -14,6 +14,7 @@ public sealed partial class FarmingTrackerService
     private readonly Dictionary<(string Connection, long Timestamp), DateTime> seenFocusChanges = new();
     private readonly List<FocusChange> pendingFocusChanges = new();
     private readonly List<CompletedBoost> pendingFocusActions = new();
+    private readonly Queue<(string AccountId, FarmingAction Action)> readyFocusActions = new();
 
     public void OnBoostRequest(BoostFarmableRequest packet) => Observe(() =>
     {
@@ -165,7 +166,9 @@ public sealed partial class FarmingTrackerService
     private void EnqueueBoostAction(CompletedBoost action, int? focusUsed)
     {
         var boost = action.Boost;
-        uploader.EnqueueAction(boost.AccountId, new FarmingAction
+        // Keep the finalized action separately until the outbox accepts it. A retry
+        // must neither adopt a new account nor match this cost to a later action.
+        readyFocusActions.Enqueue((boost.AccountId, new FarmingAction
         {
             ServerId = boost.Island.ServerId,
             CharacterId = boost.Island.CharacterId,
@@ -176,11 +179,22 @@ public sealed partial class FarmingTrackerService
             Operation = "boost",
             SourceObjectId = boost.SourceObjectId,
             FocusUsed = focusUsed
-        });
+        }));
+        FlushReadyFocusActions();
+    }
+
+    private void FlushReadyFocusActions()
+    {
+        while (readyFocusActions.TryPeek(out var pending))
+        {
+            if (!uploader.EnqueueCapturedAction(pending.AccountId, pending.Action)) return;
+            readyFocusActions.Dequeue();
+        }
     }
 
     private void ResetFocusState()
     {
+        FlushReadyFocusActions();
         FlushFocusActions(DateTime.UtcNow, true);
         boosts.Clear();
         completedBoosts.Clear();

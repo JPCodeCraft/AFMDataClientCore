@@ -87,6 +87,17 @@ public sealed class FarmingUploadService : IDisposable
         return Enqueue(accountId, value);
     }
 
+    // Only the tracker may finish an action captured while observation was enabled.
+    // Account/settings callbacks run after the session has changed, so persistence
+    // must use the captured account without granting permission to upload it.
+    internal bool EnqueueCapturedAction(string accountId, FarmingAction value)
+    {
+        return Volatile.Read(ref _disposed) == 0
+            && !string.IsNullOrWhiteSpace(accountId)
+            && CanSerialize(value)
+            && _queue.Writer.TryWrite(new QueueMessage(accountId, value, false, Persist: true));
+    }
+
     private bool Enqueue<T>(string accountId, T value) where T : FarmingContext
     {
         // The caller captures the account at observation time; never adopt a later login.
@@ -97,6 +108,14 @@ public sealed class FarmingUploadService : IDisposable
             return false;
         }
 
+        return CanSerialize(value)
+            && _settingsManager.Options.IslandTracking
+            && string.Equals(accountId, _authService.AccountId, StringComparison.Ordinal)
+            && _queue.Writer.TryWrite(new QueueMessage(accountId, value, false));
+    }
+
+    private static bool CanSerialize<T>(T value) where T : FarmingContext
+    {
         try
         {
             // Reject malformed numbers and records that can never fit in an upload batch.
@@ -112,9 +131,7 @@ public sealed class FarmingUploadService : IDisposable
             return false;
         }
 
-        return _settingsManager.Options.IslandTracking
-            && string.Equals(accountId, _authService.AccountId, StringComparison.Ordinal)
-            && _queue.Writer.TryWrite(new QueueMessage(accountId, value, false));
+        return true;
     }
 
     private void QueueUpload()
@@ -138,7 +155,7 @@ public sealed class FarmingUploadService : IDisposable
         // Preserve data captured before tracking was disabled without starting an upload.
         if (!_settingsManager.Options.IslandTracking)
         {
-            _queue.Writer.TryWrite(new QueueMessage(null, null, true));
+            _queue.Writer.TryWrite(new QueueMessage(null, null, false, Persist: true));
         }
     }
 
@@ -168,10 +185,12 @@ public sealed class FarmingUploadService : IDisposable
         while (await _queue.Reader.WaitToReadAsync().ConfigureAwait(false))
         {
             var uploadRequested = false;
+            var persistRequested = false;
             var processed = 0;
             while (processed++ < 4096 && _queue.Reader.TryRead(out var message))
             {
                 uploadRequested |= message.Upload;
+                persistRequested |= message.Persist || message.Upload;
                 if (string.IsNullOrWhiteSpace(message.AccountId))
                 {
                     continue;
@@ -186,7 +205,9 @@ public sealed class FarmingUploadService : IDisposable
 
             // Snapshot bursts coalesce in memory until the scheduled flush. Rewriting the
             // full durable outbox for each packet becomes expensive while uploads are offline.
-            if (uploadRequested)
+            // Completed actions request persistence themselves: the session's last flush
+            // may have already drained before the tracker finishes its reset.
+            if (persistRequested)
             {
                 foreach (var outbox in _outboxes.Values.Where(value => value.Dirty))
                 {
@@ -625,7 +646,7 @@ public sealed class FarmingUploadService : IDisposable
         }
     }
 
-    private sealed record QueueMessage(string? AccountId, FarmingContext? Value, bool Upload);
+    private sealed record QueueMessage(string? AccountId, FarmingContext? Value, bool Upload, bool Persist = false);
 
     private sealed class AccountOutbox
     {
