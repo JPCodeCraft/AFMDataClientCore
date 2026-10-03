@@ -6,6 +6,8 @@ namespace AFMDataClient.Core;
 
 public sealed class ClientSession
 {
+    private volatile bool joining = true;
+    public bool IsJoining => joining;
     public AlbionServer? AlbionServer { get; private set; }
     public long UserObjectId { get; private set; }
     public string? PlayerName { get; private set; }
@@ -28,6 +30,7 @@ public sealed class ClientSession
     internal void Join(JoinResponse value)
     {
         if (value.ReturnCode != 0) return;
+        joining = true;
         UserObjectId = value.userObjectId;
         PlayerName = value.playerName;
         CharacterId = value.userGuid;
@@ -35,8 +38,11 @@ public sealed class ClientSession
         RawLocationId = value.RawLocationId;
         PremiumExpirationTicks = value.premiumExpirationTicks is >= 0 and <= 3155378975999999999 ? value.premiumExpirationTicks : null;
         premiumKnown = true;
+        joining = false;
         Changed.Publish();
     }
+
+    internal void BeginJoin() => joining = true;
 
     internal void Reset()
     {
@@ -53,6 +59,7 @@ public sealed class ClientSession
 
     private void ResetCharacter()
     {
+        joining = true;
         UserObjectId = 0;
         PlayerName = null;
         CharacterId = null;

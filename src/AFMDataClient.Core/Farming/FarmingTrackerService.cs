@@ -80,6 +80,7 @@ public sealed partial class FarmingTrackerService : IDisposable
             demolitions.Clear();
             islandMetadata.Clear();
             BeginTransition();
+            ResumeIslandContext();
         }
     }
 
@@ -108,7 +109,33 @@ public sealed partial class FarmingTrackerService : IDisposable
             demolitions.Clear();
             islandMetadata.Clear();
             BeginTransition();
+            ResumeIslandContext();
         }
+    }
+
+    private void ResumeIslandContext()
+    {
+        // AFM login and tracking settings do not leave the game island. The core
+        // keeps game context current even while farming observation is disabled.
+        // Restore only that context; requests, inventory and world snapshots from
+        // the previous observation period remain cleared.
+        if (!CanObserve() || player.IsJoining || player.UserObjectId <= 0
+            || player.CharacterId is not { } characterId
+            || player.PlayerName is not { } characterName || string.IsNullOrWhiteSpace(characterName)
+            || characterName.Trim().Length > 100
+            || AlbionLocations.GetIslandId(player.RawLocationId) is not { } islandId) return;
+        island = new FarmingIslandObservation
+        {
+            ServerId = serverId!.Value,
+            CharacterId = characterId.ToString(),
+            CharacterName = characterName.Trim(),
+            IslandId = islandId,
+            ObservedAt = DateTime.UtcNow
+        };
+        localObjectId = player.UserObjectId;
+        joining = false;
+        uploader.EnqueueIsland(accountId!, island);
+        Log.Debug("Resumed farming observation in the current game island after an account or tracking change");
     }
 
     private bool CanObserve()

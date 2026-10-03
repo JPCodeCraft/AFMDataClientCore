@@ -71,9 +71,7 @@ public sealed class ClientCore : IDisposable
 
     public void UpdateOptions(ClientCoreOptions options)
     {
-        var previous = settings.Options;
         settings.Update(options);
-        if (previous.IslandTracking != options.IslandTracking) farming?.ResetTransientState();
     }
 
     public void ResetCapture()
@@ -109,6 +107,7 @@ public sealed class ClientCore : IDisposable
         if (features.Count == 0) return;
         builder.SubscribeRequest<JoinRequest>((int)OperationCodes.Join, _ =>
         {
+            Session.BeginJoin();
             farming?.OnJoinStarted();
             lock (packetGate) histories.Clear();
             return Task.CompletedTask;
