@@ -15,8 +15,18 @@ public sealed partial class FarmingTrackerService
         lock (sync)
         {
             if (disposed) return;
-            var context = (player.AlbionServer?.Id, player.CharacterId, player.UserObjectId, player.RawLocationId);
-            if (player.IsJoining || (context != captureContext && !captureJoining)) BeginTransition();
+            var currentServer = player.AlbionServer?.Id;
+            var serverChanged = serverId != currentServer;
+            if (serverChanged)
+            {
+                // Server detection belongs to capture even while AFM is off.
+                // Otherwise enabling observation clears the identities captured
+                // in this server as if the server had just changed.
+                serverId = currentServer;
+                islandMetadata.Clear();
+            }
+            var context = (currentServer, player.CharacterId, player.UserObjectId, player.RawLocationId);
+            if (serverChanged || player.IsJoining || (context != captureContext && !captureJoining)) BeginTransition();
             captureContext = context;
             captureJoining = player.IsJoining;
         }
