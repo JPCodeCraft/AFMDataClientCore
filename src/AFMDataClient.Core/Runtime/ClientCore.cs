@@ -129,7 +129,7 @@ public sealed class ClientCore : IDisposable
         }, 100);
         builder.SubscribeEvent<LeaveEvent>((int)EventCodes.Leave, value =>
         {
-            farming?.OnLeave(value.userObjectId);
+            farming?.OnLeave(value);
             if (value.userObjectId == Session.UserObjectId) Session.Reset();
             return Task.CompletedTask;
         }, 100);

@@ -80,6 +80,17 @@ ambiguous evidence stays unknown; resets can finalize it sooner. Debug logging
 reports unresolved action/deduction counts without enabling raw packet logging.
 Inventory transfers are excluded using their affected items and containers.
 
+AFM sign-in and tracking toggles resume in the current game island. Bounded
+inventory baselines and visible object identities stay current while observation
+is off, without recording new farming activity. Pending requests and cached growth
+state reset at these boundaries; game map, character, server and capture transitions
+also clear the identity caches. Resuming does not publish historical snapshots.
+Current one-way farmable destruction requests have no request ID. A Leave for the
+same connection and target within two seconds supplies removal evidence; an
+ordinary Leave alone remains visibility loss. A failed correlated response or a
+fresh positive sighting disarms the pending removal. Destruction updates island
+objects without adding harvest income or a farming ledger action.
+
 All farming uploads use schema 3 with `islands`, `objects`, and `actions` arrays,
 including snapshot-only batches. No pickup upload contract remains. Existing
 durable pickup entries are converted to output-only actions when loaded, retaining

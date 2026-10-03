@@ -55,6 +55,7 @@ public sealed partial class FarmingTrackerService : IDisposable
         serverId = player.AlbionServer?.Id;
         auth.AccountChanged += OnAuthChanged;
         settings.Changed += OnSettingsChanged;
+        player.Changed += OnCaptureSessionChanged;
         demolitionTimer = new Timer(_ => { ExpireDemolitions(); FlushActivity(); }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
@@ -69,6 +70,7 @@ public sealed partial class FarmingTrackerService : IDisposable
         demolitionTimer.Dispose();
         auth.AccountChanged -= OnAuthChanged;
         settings.Changed -= OnSettingsChanged;
+        player.Changed -= OnCaptureSessionChanged;
     }
 
     private void OnSettingsChanged()
@@ -79,7 +81,7 @@ public sealed partial class FarmingTrackerService : IDisposable
         {
             demolitions.Clear();
             islandMetadata.Clear();
-            BeginTransition();
+            BeginTransition(preserveCapture: true);
             ResumeIslandContext();
         }
     }
@@ -108,7 +110,7 @@ public sealed partial class FarmingTrackerService : IDisposable
             accountId = auth.AccountId;
             demolitions.Clear();
             islandMetadata.Clear();
-            BeginTransition();
+            BeginTransition(preserveCapture: true);
             ResumeIslandContext();
         }
     }
@@ -117,8 +119,8 @@ public sealed partial class FarmingTrackerService : IDisposable
     {
         // AFM login and tracking settings do not leave the game island. The core
         // keeps game context current even while farming observation is disabled.
-        // Restore only that context; requests, inventory and world snapshots from
-        // the previous observation period remain cleared.
+        // Restore game context and current inventory/object identities. Pending
+        // requests and growth snapshots from the previous period remain cleared.
         var contextVersion = player.ContextVersion;
         var actorId = player.UserObjectId;
         if (!CanObserve() || player.IsJoining || actorId <= 0
@@ -139,6 +141,8 @@ public sealed partial class FarmingTrackerService : IDisposable
         };
         localObjectId = actorId;
         joining = false;
+        foreach (var (id, observation) in objects.ToArray()) objects[id] = ApplyContext(observation);
+        seenPlacementObjects.UnionWith(objects.Values.Where(value => value.Kind == "farmable").Select(value => value.ObjectId));
         uploader.EnqueueIsland(accountId!, island);
         Log.Debug("Resumed farming observation in the current game island after an account or tracking change");
     }
@@ -156,48 +160,82 @@ public sealed partial class FarmingTrackerService : IDisposable
         return serverId is >= 1 and <= 3;
     }
 
-    private void BeginTransition()
+    private void BeginTransition(bool preserveCapture = false)
     {
         island = null;
         localObjectId = 0;
         joining = true;
         pendingDestination = null;
-        objects.Clear();
-        removedObjects.Clear();
+        if (preserveCapture)
+        {
+            foreach (var (id, observation) in objects.ToArray()) objects[id] = observation with { State = null };
+        }
+        else
+        {
+            objects.Clear();
+            removedObjects.Clear();
+        }
         plotRenovations.Clear();
         // Confirmed countdowns belong to stable building identities, not a visit's
         // session IDs. Only incomplete requests are discarded at a transition.
         foreach (var key in demolitions.Where(entry => !entry.Value.Confirmed || entry.Value.Duration is null)
             .Select(entry => entry.Key).ToArray()) demolitions.Remove(key);
         pendingStates.Clear();
-        ResetActivityState();
+        ResetActivityState(preserveInventory: preserveCapture);
+        destructions.Clear();
         actions.Clear();
         completedActions.Clear();
     }
 
-    public void OnLeave(long objectId) => Observe(() =>
+    public void OnLeave(long objectId)
     {
-        if (localObjectId != 0 && objectId == localObjectId)
+        lock (sync)
         {
-            BeginTransition();
-            return;
+            if (disposed) return;
+            if ((localObjectId != 0 && objectId == localObjectId) || (player.UserObjectId != 0 && objectId == player.UserObjectId))
+            {
+                BeginTransition();
+                return;
+            }
+            // Keep visibility current while AFM observation is off, without
+            // publishing a removal for an ordinary visibility loss.
+            pendingStates.Remove(objectId);
+            plotRenovations.Remove(objectId);
+            objects.Remove(objectId);
         }
-        // Leave can be visibility loss even after the deadline. Keep the stable
-        // countdown; its expiry produces an assumption, never a confirmed removal.
-        pendingStates.Remove(objectId);
-        plotRenovations.Remove(objectId);
-        objects.Remove(objectId);
-    });
+    }
 
-    public void OnJoinStarted() => Observe(() =>
+    public void OnLeave(LeaveEvent packet)
     {
-        if (!joining) BeginTransition();
-    });
+        Observe(() => CompleteDestruction(packet));
+        OnLeave(packet.userObjectId);
+    }
+
+    public void OnJoinStarted()
+    {
+        lock (sync)
+        {
+            if (disposed) return;
+            // Game transitions invalidate inventory even while AFM observation is off.
+            if (!captureJoining) BeginTransition();
+            captureJoining = true;
+        }
+    }
 
     public void OnJoin(JoinResponse value) => Observe(() => ObserveJoin(value));
     public void OnClusterChanged(ChangeClusterResponse value) => Observe(() => ObserveCluster(value));
     public void OnIslandList(GetIslandInfosResponse value) => Observe(() => ObserveIslandList(value));
-    public void OnBuilding(NewBuildingEvent value) => Observe(() => ObserveBuilding(value));
+    public void OnBuilding(NewBuildingEvent value)
+    {
+        lock (sync)
+        {
+            if (disposed) return;
+            if (CanObserve()) Observe(() => ObserveBuilding(value));
+            else if (value.Object is { } observed && !removedObjects.Contains(observed.ObjectId)
+                && (objects.Count < MaxTransientEntries || objects.ContainsKey(value.SessionId)))
+                objects[value.SessionId] = observed with { State = null };
+        }
+    }
     public void OnFarmable(FarmableObjectInfoEvent value) => Observe(() => ObserveFarmable(value));
 
     public void OnRenovationRequest(BuildingRenovationRequest value) => Observe(() =>
@@ -224,7 +262,13 @@ public sealed partial class FarmingTrackerService : IDisposable
 
     public void OnActionRequest(OperationCodes operation, FarmingActionRequest value) => Observe(() =>
     {
-        if (island is null || value.RequestId is not { } requestId || value.TargetId is not { } target) return;
+        if (island is null || value.TargetId is not { } target) return;
+        if (operation == OperationCodes.FarmableDestroy)
+        {
+            ObserveDestructionRequest(value, target);
+            return;
+        }
+        if (value.RequestId is not { } requestId) return;
         PruneActions();
         var key = (value.ConnectionId, (short)operation, requestId);
         if (actions.ContainsKey(key) || completedActions.ContainsKey(key)) return;
@@ -236,6 +280,11 @@ public sealed partial class FarmingTrackerService : IDisposable
 
     public void OnActionResponse(OperationCodes operation, FarmingActionResponse value) => Observe(() =>
     {
+        if (operation == OperationCodes.FarmableDestroy)
+        {
+            CompleteDestructionResponse(value);
+            return;
+        }
         if (value.RequestId is not { } requestId) return;
         if (value.ReturnCode != 0)
         {
@@ -367,6 +416,8 @@ public sealed partial class FarmingTrackerService : IDisposable
         if ((!joining && island is null) || packet.Object is not { } observed) return;
         ObservePlacementDestination(packet, observed);
         var sessionId = packet.SessionId;
+        // A fresh positive sighting contradicts an unconfirmed destroy request.
+        destructions.Remove((packet.ConnectionId, sessionId));
         var stableId = observed.ObjectId;
         var name = observed.UniqueName;
         var rotation = observed.Rotation;
@@ -533,19 +584,7 @@ public sealed partial class FarmingTrackerService : IDisposable
         // A successful removal is known even if a changed item payload cannot be decoded.
         if (operationCode is not (OperationCodes.FarmableGetProduct or OperationCodes.FarmableFill) && action.Source is not null)
         {
-            var removed = action.Source with
-            {
-                Removed = true,
-                RemovalAssumed = null,
-                State = null,
-                ObservedAt = DateTime.UtcNow,
-                OccupantObservedAt = action.Source.ObservedAt
-            };
-            removedObjects.Add(removed.ObjectId);
-            if (removed.Kind == "plot") demolitions.Remove(KeyOf(removed));
-            uploader.EnqueueObject(accountId!, removed);
-            if (objects.TryGetValue(action.Target, out var current) && current.ObjectId == removed.ObjectId)
-                objects[action.Target] = removed;
+            RemoveConfirmedObject(action.Source, action.Target);
         }
         else if (operationCode == OperationCodes.FarmableGetProduct
             && objects.TryGetValue(action.Target, out var productObject)

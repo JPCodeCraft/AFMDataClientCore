@@ -7,30 +7,56 @@ public sealed partial class FarmingTrackerService
 {
     private readonly Dictionary<(string Connection, long Id), InventoryItem> inventoryItems = new();
     private readonly Dictionary<(string Name, int Quality), EmvObservation> observedPrices = new();
+    private (int? Server, Guid? Character, long Actor, string? Location) captureContext;
+    private bool captureJoining = true;
+
+    private void OnCaptureSessionChanged()
+    {
+        lock (sync)
+        {
+            if (disposed) return;
+            var context = (player.AlbionServer?.Id, player.CharacterId, player.UserObjectId, player.RawLocationId);
+            if (player.IsJoining || (context != captureContext && !captureJoining)) BeginTransition();
+            captureContext = context;
+            captureJoining = player.IsJoining;
+        }
+    }
 
     // Inventory identity is captured before consumption. World tiles can use a
     // baby's name for an adult animal, so they are not inventory item identities.
-    public void OnInventoryItem(NewItem? item, string connection, DateTime capturedAt) => Observe(() =>
+    public void OnInventoryItem(NewItem? item, string connection, DateTime capturedAt)
     {
-        if ((!joining && island is null) || item?.ObjectId is not { } id || !ValidItemName(item.ItemUniqueName)
-            || item.Quantity < 0 || item.Quality is < 1 or > 5) return;
-        var key = (connection, id);
-        if (inventoryItems.Count >= MaxTransientEntries && !inventoryItems.ContainsKey(key)) return;
-        if (inventoryItems.TryGetValue(key, out var previous) && previous.ObservedAt > capturedAt) return;
-        inventoryItems[key] = new(item.ItemUniqueName, item.Quality, item.Quantity, capturedAt);
-        ObservePrice(item.ItemUniqueName, item.Quality, item.EstimatedMarketValue, capturedAt);
-        ObservePlacementInventoryChange(connection, id, previous, inventoryItems[key], capturedAt);
-        ObservePickupInventoryItem(connection, id, previous, inventoryItems[key]);
-    });
+        lock (sync)
+        {
+            if (disposed || item?.ObjectId is not { } id || !ValidItemName(item.ItemUniqueName)
+                || item.Quantity < 0 || item.Quality is < 1 or > 5) return;
+            var observing = CanObserve() && (joining || island is not null);
+            var key = (connection, id);
+            if (inventoryItems.Count >= MaxTransientEntries && !inventoryItems.ContainsKey(key)) return;
+            if (inventoryItems.TryGetValue(key, out var previous) && previous.ObservedAt > capturedAt) return;
+            // Inventory belongs to the game session. Keep its baseline current
+            // while signed out/disabled, without collecting any farming activity.
+            inventoryItems[key] = new(item.ItemUniqueName, item.Quality, item.Quantity, capturedAt);
+            if (!observing) return;
+            ObservePrice(item.ItemUniqueName, item.Quality, item.EstimatedMarketValue, capturedAt);
+            ObservePlacementInventoryChange(connection, id, previous, inventoryItems[key], capturedAt);
+            ObservePickupInventoryItem(connection, id, previous, inventoryItems[key]);
+        }
+    }
 
-    public void OnInventoryItemDeleted(InventoryDeleteItemEvent packet) => Observe(() =>
+    public void OnInventoryItemDeleted(InventoryDeleteItemEvent packet)
     {
-        if (inventoryItems.TryGetValue((packet.ConnectionId, packet.ItemObjectId), out var existing)
-            && existing.ObservedAt > packet.CapturedAt) return;
-        if (inventoryItems.Remove((packet.ConnectionId, packet.ItemObjectId), out var previous))
-            ObservePlacementInventoryChange(packet.ConnectionId, packet.ItemObjectId, previous, null, packet.CapturedAt);
-        ForgetPickupInventoryItem(packet.ConnectionId, packet.ItemObjectId);
-    });
+        lock (sync)
+        {
+            if (disposed) return;
+            var observing = CanObserve();
+            if (inventoryItems.TryGetValue((packet.ConnectionId, packet.ItemObjectId), out var existing)
+                && existing.ObservedAt > packet.CapturedAt) return;
+            if (inventoryItems.Remove((packet.ConnectionId, packet.ItemObjectId), out var previous) && observing)
+                ObservePlacementInventoryChange(packet.ConnectionId, packet.ItemObjectId, previous, null, packet.CapturedAt);
+            if (observing) ForgetPickupInventoryItem(packet.ConnectionId, packet.ItemObjectId);
+        }
+    }
 
     public void OnEstimatedMarketValue(string name, int quality, long value, DateTime capturedAt) => Observe(() =>
     {
@@ -71,12 +97,12 @@ public sealed partial class FarmingTrackerService
         Observe(PruneActivity);
     }
 
-    private void ResetActivityState()
+    private void ResetActivityState(bool preserveInventory = false)
     {
         ResetFocusState();
         ResetPickupInventoryReturns();
         ResetPlacementState();
-        inventoryItems.Clear();
+        if (!preserveInventory) inventoryItems.Clear();
         observedPrices.Clear();
     }
 

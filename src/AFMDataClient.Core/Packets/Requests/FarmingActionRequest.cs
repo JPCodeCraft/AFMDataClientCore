@@ -13,11 +13,8 @@ public sealed class FarmingActionRequest : BaseOperation
     {
         TryRead(() =>
         {
-            if (!parameters.ContainsKey(255) || !parameters.ContainsKey(0)) return;
-            var requestId = Number(parameters, 255);
-            var targetId = Number(parameters, 0);
-            RequestId = requestId;
-            TargetId = targetId;
+            if (parameters.ContainsKey(0)) TargetId = Number(parameters, 0);
+            if (parameters.ContainsKey(255)) RequestId = Number(parameters, 255);
         });
     }
 }
