@@ -119,11 +119,16 @@ public sealed partial class FarmingTrackerService : IDisposable
         // keeps game context current even while farming observation is disabled.
         // Restore only that context; requests, inventory and world snapshots from
         // the previous observation period remain cleared.
-        if (!CanObserve() || player.IsJoining || player.UserObjectId <= 0
+        var contextVersion = player.ContextVersion;
+        var actorId = player.UserObjectId;
+        if (!CanObserve() || player.IsJoining || actorId <= 0
             || player.CharacterId is not { } characterId
             || player.PlayerName is not { } characterName || string.IsNullOrWhiteSpace(characterName)
             || characterName.Trim().Length > 100
             || AlbionLocations.GetIslandId(player.RawLocationId) is not { } islandId) return;
+        // Authentication callbacks can race capture. Do not combine character,
+        // island or actor fields from different game sessions.
+        if (contextVersion != player.ContextVersion) return;
         island = new FarmingIslandObservation
         {
             ServerId = serverId!.Value,
@@ -132,7 +137,7 @@ public sealed partial class FarmingTrackerService : IDisposable
             IslandId = islandId,
             ObservedAt = DateTime.UtcNow
         };
-        localObjectId = player.UserObjectId;
+        localObjectId = actorId;
         joining = false;
         uploader.EnqueueIsland(accountId!, island);
         Log.Debug("Resumed farming observation in the current game island after an account or tracking change");

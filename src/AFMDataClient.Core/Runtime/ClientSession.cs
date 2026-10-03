@@ -7,6 +7,8 @@ namespace AFMDataClient.Core;
 public sealed class ClientSession
 {
     private volatile bool joining = true;
+    private long contextVersion;
+    internal long ContextVersion => Interlocked.Read(ref contextVersion);
     public bool IsJoining => joining;
     public AlbionServer? AlbionServer { get; private set; }
     public long UserObjectId { get; private set; }
@@ -22,6 +24,7 @@ public sealed class ClientSession
     public void SetServer(AlbionServer? server)
     {
         if (AlbionServer?.Id == server?.Id) return;
+        BeginJoin();
         AlbionServer = server;
         ResetCharacter();
         Changed.Publish();
@@ -30,7 +33,7 @@ public sealed class ClientSession
     internal void Join(JoinResponse value)
     {
         if (value.ReturnCode != 0) return;
-        joining = true;
+        BeginJoin();
         UserObjectId = value.userObjectId;
         PlayerName = value.playerName;
         CharacterId = value.userGuid;
@@ -42,7 +45,11 @@ public sealed class ClientSession
         Changed.Publish();
     }
 
-    internal void BeginJoin() => joining = true;
+    internal void BeginJoin()
+    {
+        joining = true;
+        Interlocked.Increment(ref contextVersion);
+    }
 
     internal void Reset()
     {
@@ -59,7 +66,7 @@ public sealed class ClientSession
 
     private void ResetCharacter()
     {
-        joining = true;
+        BeginJoin();
         UserObjectId = 0;
         PlayerName = null;
         CharacterId = null;
