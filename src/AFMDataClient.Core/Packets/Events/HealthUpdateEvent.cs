@@ -1,5 +1,4 @@
 using Albion.Network;
-using AlbionDataAvalonia.Combat.Models;
 
 namespace AlbionDataAvalonia.Network.Events;
 
@@ -33,10 +32,4 @@ public class HealthUpdateEvent : BaseEvent
         GameTimeMilliseconds = ActivityPacketValues.Long(parameters, 1).Optional;
     }
 
-    public bool TryNormalize(out CombatHealthEvent healthEvent)
-    {
-        healthEvent = default!;
-        return IsValid && CombatHealthEvent.TryCreate(CauserId, AffectedObjectId, HealthChange,
-            NewHealthValue, GameTimeMilliseconds, out healthEvent);
-    }
 }

@@ -22,7 +22,9 @@ Typed packets carry `MessageIdentity` and the original capture time. Its origin
 key includes receiver generation, directional stream, peer/challenge, channel,
 and reliable/unreliable/fragment sequence. Call `ResetTransportContext()` when
 starting a new capture interval. Fragment assembly is stream-scoped and retains
-the first observed fragment's context; delivery order and uploads are unchanged.
+its original sequence/connection. A completed message uses its completion capture
+time for chronology; first-fragment time is optional identity detail and never
+part of the deduplication key. Delivery order and uploads are unchanged.
 
 `AlbionLocations.ResolveActivityLocation` preserves actual map names and instance
 identity independently of market aliases. The embedded lookup is generated from

@@ -519,7 +519,10 @@ namespace PhotonPackageParser
         private PacketReceiveResult HandleFinishedSegmentedPackage(SegmentedPackage package)
         {
             CurrentMessageIdentity = package.MessageIdentity;
-            CurrentMessageCapturedAtUtc = package.CapturedAtUtc;
+            // Whole-message observation becomes available when assembly finishes.
+            // Preserve first-fragment time as detail without moving this event
+            // backwards across party/map/encounter boundaries.
+            CurrentMessageCapturedAtUtc = CurrentReceiveCapturedAtUtc;
             CurrentMessageConnectionId = package.ConnectionId;
             var totalPayload = package.TotalPayload;
             int offset = 0;
@@ -641,8 +644,8 @@ namespace PhotonPackageParser
                 MessageIdentity = new PhotonMessageIdentity(_receiverGeneration, segmentKey.DirectionalConnection,
                     segmentKey.PeerId, segmentKey.Challenge, segmentKey.ChannelId,
                     PhotonMessageKind.Fragmented, segmentKey.StartSequenceNumber,
-                    FragmentStartSequence: segmentKey.StartSequenceNumber),
-                CapturedAtUtc = CurrentReceiveCapturedAtUtc,
+                    FragmentStartSequence: segmentKey.StartSequenceNumber,
+                    FirstFragmentCapturedAtUtc: CurrentReceiveCapturedAtUtc),
                 ConnectionId = CurrentReceiveConnectionId,
             };
             _pendingSegments.Add(segmentKey, segmentedPackage);

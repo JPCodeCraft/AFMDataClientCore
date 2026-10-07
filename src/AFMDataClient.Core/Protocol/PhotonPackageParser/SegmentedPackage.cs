@@ -57,7 +57,6 @@ namespace PhotonPackageParser
     {
         public int TotalLength;
         public PhotonMessageIdentity? MessageIdentity;
-        public DateTime CapturedAtUtc;
         public string ConnectionId = string.Empty;
         public int FragmentCount;
         public long BytesWritten;
