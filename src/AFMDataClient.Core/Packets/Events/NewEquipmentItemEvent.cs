@@ -24,6 +24,11 @@ public class NewEquipmentItemEvent : BaseEvent
         Log.Verbose("Got {PacketType} packet.", GetType());
         try
         {
+            // Crafter-name packets shift quality/durability by one field.
+            // Without that string, parameter 8 carries spells, not durability.
+            var shifted = parameters.TryGetValue(6, out var parameterSix) && parameterSix is string;
+            var qualityKey = shifted ? (byte)7 : (byte)6;
+            var durabilityKey = shifted ? (byte)8 : (byte)7;
             if (parameters.TryGetValue(0, out object? objectIdValue))
             {
                 objectId = objectIdValue.ToLong();
@@ -50,19 +55,21 @@ public class NewEquipmentItemEvent : BaseEvent
                 blackMarketEstimatedMarketValue = parsedBlackMarketEstimatedMarketValue > 0 ? parsedBlackMarketEstimatedMarketValue : null;
             }
 
-            if (parameters.TryGetValue(6, out object? crafterNameValue))
+            if (parameterSix is string crafterNameValue)
             {
-                crafterName = crafterNameValue.ToString();
+                crafterName = crafterNameValue;
             }
 
-            if (parameters.TryGetValue(7, out object? qualityValue))
+            var parsedQuality = ActivityPacketValues.Long(parameters, qualityKey);
+            if (parsedQuality.State != PacketFieldState.Missing)
             {
-                quality = checked((int)qualityValue.ToLong());
+                quality = parsedQuality.Optional is >= 1 and <= 5 ? (int)parsedQuality.Value : 0;
             }
 
-            if (parameters.TryGetValue(8, out object? durabilityValue))
+            var parsedDurability = ActivityPacketValues.Long(parameters, durabilityKey).Optional;
+            if (parsedDurability is >= 0)
             {
-                durability = durabilityValue.ToLong() / 10000;
+                durability = parsedDurability.Value / 10000;
             }
 
             if (parameters.TryGetValue(11, out object? isAwakenedValue))
