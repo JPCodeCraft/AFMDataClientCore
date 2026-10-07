@@ -50,9 +50,10 @@ public class UpdateFameEvent : BaseEvent
         BonusFactor = factor.Optional is > 0 ? 1 : 1 + (factor.Optional ?? 0);
         PremiumFame = IsPremiumBonus ? FameWithZoneMultiplier * .5d : 0;
         if (states[2] == PacketFieldState.Valid && states[10] != PacketFieldState.Invalid
-            && premium.State != PacketFieldState.Invalid && factor.State != PacketFieldState.Invalid
-            && (factor.Optional is null or 0))
+            && premium.State != PacketFieldState.Invalid && factor.State != PacketFieldState.Invalid)
         {
+            // Positive parameter 17 uses the applied factor of one above;
+            // its presence must not suppress the per-event award.
             var award = (FameWithZoneMultiplier + PremiumFame + SatchelFame) * BonusFactor;
             if (double.IsFinite(award) && award >= 0) ObservedAward = award;
         }

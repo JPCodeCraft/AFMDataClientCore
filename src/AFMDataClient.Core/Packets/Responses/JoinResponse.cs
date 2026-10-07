@@ -105,16 +105,16 @@ public class JoinResponse : BaseOperation
         FarmingPacketValues.TryRead(() =>
         {
             // Join supplies the main inventory container/items at 54/55.
-            // This pair matches subsequent InventoryPut
-            // destinations and the source objects used for farming actions.
-            if (!parameters.TryGetValue(54, out var rawContainer)
-                || !parameters.TryGetValue(55, out var rawItems)
-                || rawItems is not Array { Rank: 1 } array || array.Length > 4096) return;
+            // Container identity remains usable even when initial membership
+            // is omitted. Subsequent inventory events provide membership.
+            if (!parameters.TryGetValue(54, out var rawContainer)) return;
             var container = rawContainer.ToGuid();
             if (container is null || container == Guid.Empty) return;
+            MainInventoryContainerId = container;
+            if (!parameters.TryGetValue(55, out var rawItems)
+                || rawItems is not Array { Rank: 1 } array || array.Length > 4096) return;
             var items = rawItems.ToLongArray();
             if (items.Any(id => id < 0)) return;
-            MainInventoryContainerId = container;
             MainInventoryItemObjectIds = items;
         });
     }
