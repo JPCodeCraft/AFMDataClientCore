@@ -10,6 +10,7 @@
     <RepositoryUrl>https://github.com/JPCodeCraft/AFMDataClientCore</RepositoryUrl>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Locations/activity-world.json" />
     <PackageReference Include="Serilog" Version="4.3.1" />
     <InternalsVisibleTo Include="PowBench" />
     <InternalsVisibleTo Include="PowBench.Tests" />

@@ -8,6 +8,7 @@ namespace Albion.Network
         public short ReturnCode { get; internal set; }
         public string ConnectionId { get; internal set; } = string.Empty;
         public DateTime CapturedAt { get; internal set; } = DateTime.UtcNow;
+        public PhotonMessageIdentity? MessageIdentity { get; internal set; }
 
         public BaseOperation(Dictionary<byte, object> parameters) { }
     }

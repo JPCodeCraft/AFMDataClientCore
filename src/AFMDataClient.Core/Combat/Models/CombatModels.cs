@@ -44,7 +44,7 @@ public sealed record CombatHealthEvent(
         out CombatHealthEvent healthEvent)
     {
         healthEvent = default!;
-        if (healthChange == 0)
+        if (!double.IsFinite(healthChange) || healthChange == 0)
         {
             return false;
         }
@@ -71,7 +71,7 @@ public sealed record CombatFameEvent(long Amount)
     public static bool TryCreate(double totalGainedFame, out CombatFameEvent fameEvent)
     {
         fameEvent = default!;
-        if (totalGainedFame <= 0)
+        if (!double.IsFinite(totalGainedFame) || totalGainedFame <= 0)
         {
             return false;
         }
@@ -92,7 +92,7 @@ public sealed record CombatSilverEvent(long PickerObjectId, long Amount)
     public static bool TryCreate(long? pickerObjectId, double gainedSilver, out CombatSilverEvent silverEvent)
     {
         silverEvent = default!;
-        if (pickerObjectId is null || pickerObjectId == 0 || gainedSilver <= 0)
+        if (pickerObjectId is null || pickerObjectId == 0 || !double.IsFinite(gainedSilver) || gainedSilver <= 0)
         {
             return false;
         }

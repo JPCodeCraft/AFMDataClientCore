@@ -6,6 +6,10 @@ internal static class PacketFactory
     private static readonly IReadOnlyDictionary<Type, Func<Dictionary<byte, object>, object>> Factories =
         new Dictionary<Type, Func<Dictionary<byte, object>, object>>
         {
+            [typeof(AlbionDataAvalonia.Network.Events.DiedEvent)] = p => new AlbionDataAvalonia.Network.Events.DiedEvent(p),
+            [typeof(AlbionDataAvalonia.Network.Events.KnockedDownEvent)] = p => new AlbionDataAvalonia.Network.Events.KnockedDownEvent(p),
+            [typeof(AlbionDataAvalonia.Network.Events.KilledPlayerEvent)] = p => new AlbionDataAvalonia.Network.Events.KilledPlayerEvent(p),
+            [typeof(AlbionDataAvalonia.Network.Events.PartySilverGainedEvent)] = p => new AlbionDataAvalonia.Network.Events.PartySilverGainedEvent(p),
             [typeof(AlbionDataAvalonia.Network.Events.BankVaultInfoEvent)] = p => new AlbionDataAvalonia.Network.Events.BankVaultInfoEvent(p),
             [typeof(AlbionDataAvalonia.Network.Events.GuildVaultInfoEvent)] = p => new AlbionDataAvalonia.Network.Events.GuildVaultInfoEvent(p),
             [typeof(AlbionDataAvalonia.Network.Requests.JoinRequest)] = p => new AlbionDataAvalonia.Network.Requests.JoinRequest(p),

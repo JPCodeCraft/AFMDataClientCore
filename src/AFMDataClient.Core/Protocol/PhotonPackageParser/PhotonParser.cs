@@ -1,5 +1,6 @@
 ﻿using Protocol18;
 using Protocol18.Photon;
+using Albion.Network;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -28,6 +29,25 @@ namespace PhotonPackageParser
         private int _encryptedCandidateChallenge;
         private int _encryptedCandidateTimestamp;
         private DateTime _encryptedCandidateSeenUtc;
+        private Guid _receiverGeneration = Guid.NewGuid();
+        protected virtual string CurrentTransportStream => string.Empty;
+        protected virtual string CurrentReceiveConnectionId => string.Empty;
+        protected virtual DateTime CurrentReceiveCapturedAtUtc => DateTime.UtcNow;
+        protected PhotonMessageIdentity? CurrentMessageIdentity { get; private set; }
+        protected DateTime CurrentMessageCapturedAtUtc { get; private set; }
+        protected string CurrentMessageConnectionId { get; private set; } = string.Empty;
+
+        public void ResetTransportContext()
+        {
+            lock (_receiveLock)
+            {
+                _receiverGeneration = Guid.NewGuid();
+                _pendingSegments.Clear();
+                _pendingSegmentBytes = 0;
+                _hasEncryptedCandidate = false;
+                CurrentMessageIdentity = null;
+            }
+        }
 
         public PacketStatus ReceivePacket(byte[] payload)
         {
@@ -286,6 +306,10 @@ namespace PhotonPackageParser
             NumberDeserializer.Deserialize(out int commandLength, source, ref offset);
             NumberDeserializer.Deserialize(out int sequenceNumber, source, ref offset);
             commandLength -= CommandHeaderLength;
+            CurrentMessageIdentity = new PhotonMessageIdentity(_receiverGeneration, CurrentTransportStream,
+                peerId, challenge, channelId, PhotonMessageKind.Reliable, sequenceNumber);
+            CurrentMessageCapturedAtUtc = CurrentReceiveCapturedAtUtc;
+            CurrentMessageConnectionId = CurrentReceiveConnectionId;
 
             if (commandLength < 0 || !HasAvailable(source, offset, commandLength))
             {
@@ -308,7 +332,9 @@ namespace PhotonPackageParser
                             return new PacketReceiveResult(PacketStatus.InvalidHeader, false);
                         }
 
-                        offset += 4;
+                        NumberDeserializer.Deserialize(out int unreliableSequence, source, ref offset);
+                        CurrentMessageIdentity = CurrentMessageIdentity with
+                        { Kind = PhotonMessageKind.Unreliable, UnreliableSequence = unreliableSequence };
                         commandLength -= 4;
                         goto case CommandType.SendReliable;
                     }
@@ -476,6 +502,7 @@ namespace PhotonPackageParser
 
             return HandleSegmentedPayload(
                 new SegmentedPackageKey(
+                    CurrentTransportStream,
                     peerId,
                     challenge,
                     channelId,
@@ -489,8 +516,12 @@ namespace PhotonPackageParser
                 ref offset);
         }
 
-        private PacketReceiveResult HandleFinishedSegmentedPackage(byte[] totalPayload, int fragmentCount)
+        private PacketReceiveResult HandleFinishedSegmentedPackage(SegmentedPackage package)
         {
+            CurrentMessageIdentity = package.MessageIdentity;
+            CurrentMessageCapturedAtUtc = package.CapturedAtUtc;
+            CurrentMessageConnectionId = package.ConnectionId;
+            var totalPayload = package.TotalPayload;
             int offset = 0;
             int commandLength = totalPayload.Length;
             return HandleSendReliable(
@@ -498,7 +529,7 @@ namespace PhotonPackageParser
                 ref offset,
                 ref commandLength,
                 isFragmented: true,
-                fragmentCount);
+                package.FragmentCount);
         }
 
         private PacketReceiveResult HandleSegmentedPayload(
@@ -564,9 +595,8 @@ namespace PhotonPackageParser
                     return new PacketReceiveResult(PacketStatus.InvalidHeader, false);
                 }
 
-                byte[] totalPayload = segmentedPackage.TotalPayload;
                 RemovePendingSegment(segmentKey);
-                return HandleFinishedSegmentedPackage(totalPayload, segmentedPackage.FragmentCount);
+                return HandleFinishedSegmentedPackage(segmentedPackage);
             }
 
             if (segmentedPackage.BytesWritten >= segmentedPackage.TotalLength)
@@ -608,6 +638,12 @@ namespace PhotonPackageParser
                 TotalPayload = new byte[totalLength],
                 CreatedUtc = now,
                 LastUpdatedUtc = now,
+                MessageIdentity = new PhotonMessageIdentity(_receiverGeneration, segmentKey.DirectionalConnection,
+                    segmentKey.PeerId, segmentKey.Challenge, segmentKey.ChannelId,
+                    PhotonMessageKind.Fragmented, segmentKey.StartSequenceNumber,
+                    FragmentStartSequence: segmentKey.StartSequenceNumber),
+                CapturedAtUtc = CurrentReceiveCapturedAtUtc,
+                ConnectionId = CurrentReceiveConnectionId,
             };
             _pendingSegments.Add(segmentKey, segmentedPackage);
             _pendingSegmentBytes += totalLength;

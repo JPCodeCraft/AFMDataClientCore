@@ -5,6 +5,8 @@ namespace AFMDataClient.Core;
 public sealed record CapturedDatagram(byte[] Payload, DateTime CapturedAt,
     IPEndPoint? Source = null, IPEndPoint? Destination = null)
 {
+    public string DirectionalConnectionId => Source is not null && Destination is not null
+        ? $"{Source}>{Destination}" : string.Empty;
     public string ConnectionId
     {
         get

@@ -15,6 +15,8 @@ namespace AlbionDataAvalonia.Locations
         private const string JsonUrl = "https://cdn.albionfreemarket.com/ao-bin-dumps/formatted/world.json";
         private static List<AlbionLocation> albionLocations = new List<AlbionLocation>();
         public static bool IsInitialized => albionLocations.Count > 0;
+        public static ActivityLocationDescriptor ResolveActivityLocation(string? rawLocationId, string? parentClusterId = null, string? sourceClusterId = null) =>
+            ActivityWorldReference.Resolve(rawLocationId, parentClusterId, sourceClusterId);
 
         private static readonly Dictionary<string, int> HellDenToMarket = new()
     {

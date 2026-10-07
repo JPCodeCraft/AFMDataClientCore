@@ -6,6 +6,7 @@ namespace Albion.Network
     {
         public string ConnectionId { get; internal set; } = string.Empty;
         public DateTime CapturedAt { get; internal set; } = DateTime.UtcNow;
+        public PhotonMessageIdentity? MessageIdentity { get; internal set; }
         public BaseEvent(Dictionary<byte, object> parameters) { }
     }
 }

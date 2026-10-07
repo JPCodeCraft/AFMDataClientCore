@@ -6,5 +6,6 @@ namespace Albion.Network
     {
         PacketStatus ReceivePacket(byte[] payload);
         PacketReceiveResult Receive(AFMDataClient.Core.CapturedDatagram datagram);
+        void ResetTransportContext();
     }
 }

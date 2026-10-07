@@ -6,6 +6,7 @@ public abstract class DecodedPacket
     private readonly Dictionary<Type, object> decoded = new();
     public string ConnectionId { get; internal set; } = string.Empty;
     public DateTime CapturedAt { get; internal set; } = DateTime.UtcNow;
+    public PhotonMessageIdentity? MessageIdentity { get; internal set; }
 
     internal T GetDecoded<T>(Dictionary<byte, object> parameters) where T : class
     {
@@ -16,11 +17,13 @@ public abstract class DecodedPacket
             {
                 operation.ConnectionId = ConnectionId;
                 operation.CapturedAt = CapturedAt;
+                operation.MessageIdentity = MessageIdentity;
             }
             if (value is BaseEvent eventValue)
             {
                 eventValue.ConnectionId = ConnectionId;
                 eventValue.CapturedAt = CapturedAt;
+                eventValue.MessageIdentity = MessageIdentity;
             }
             decoded.Add(typeof(T), value);
         }

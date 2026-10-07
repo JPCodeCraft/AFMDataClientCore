@@ -1,93 +1,60 @@
 using Albion.Network;
-using Serilog;
-using System;
-using System.Collections.Generic;
 
 namespace AlbionDataAvalonia.Network.Events;
 
 public class UpdateFameEvent : BaseEvent
 {
-    public double BonusFactor { get; private set; } = 1;
-    public double BonusFactorInPercent { get; private set; }
-    public double FameWithZoneMultiplier { get; private set; }
-    public bool IsPremiumBonus { get; private set; }
-    public double SatchelFame { get; private set; }
-    public bool IsBonusFactorActive { get; private set; }
-    public long UsedBagInsightItemIndex { get; private set; } = -1;
-    public double TotalPlayerFame { get; private set; }
-    public double Multiplier { get; private set; } = 1;
-    public double PremiumFame { get; private set; }
-    public double ZoneFame { get; private set; }
-    public double TotalGainedFame { get; private set; }
+    public double BonusFactor { get; }
+    public double BonusFactorInPercent => (ReportedBonusIncrement ?? 0) * 100;
+    public double FameWithZoneMultiplier { get; }
+    public bool IsPremiumBonus { get; }
+    public double SatchelFame { get; }
+    public bool IsBonusFactorActive => ReportedBonusIncrement is > 0;
+    public long UsedBagInsightItemIndex { get; }
+    public double TotalPlayerFame { get; }
+    public double Multiplier { get; }
+    public double PremiumFame { get; }
+    public double ZoneFame { get; }
+    public double TotalGainedFame => ObservedAward ?? 0;
+    public double? ObservedAward { get; }
+    public double? ReportedBonusIncrement { get; }
+    public IReadOnlyDictionary<byte, PacketFieldState> ComponentStates { get; }
+    public IReadOnlyDictionary<byte, long?> RawFixedPointComponents { get; }
 
     public UpdateFameEvent(Dictionary<byte, object> parameters) : base(parameters)
     {
-        Log.Verbose("Got {PacketType} packet.", GetType());
-        try
+        var states = new Dictionary<byte, PacketFieldState>();
+        var raw = new Dictionary<byte, long?>();
+        foreach (byte key in new byte[] { 1, 2, 3, 4, 10 })
         {
-            if (parameters.TryGetValue(1, out object? totalPlayerFame))
-            {
-                TotalPlayerFame = totalPlayerFame.ToFixedPointDouble();
-            }
-
-            if (parameters.TryGetValue(2, out object? fameWithZoneMultiplier))
-            {
-                FameWithZoneMultiplier = fameWithZoneMultiplier.ToFixedPointDouble();
-            }
-
-            if (parameters.TryGetValue(3, out object? zoneFame))
-            {
-                ZoneFame = zoneFame.ToFixedPointDouble();
-            }
-
-            if (parameters.TryGetValue(4, out object? multiplier))
-            {
-                Multiplier = multiplier.ToFixedPointDouble();
-            }
-
-            if (parameters.TryGetValue(5, out object? isPremiumBonus))
-            {
-                IsPremiumBonus = isPremiumBonus.ToBool();
-            }
-
-            if (parameters.TryGetValue(8, out object? usedBagInsightItemIndex))
-            {
-                UsedBagInsightItemIndex = usedBagInsightItemIndex.ToLong();
-            }
-
-            if (parameters.TryGetValue(10, out object? satchelFame))
-            {
-                SatchelFame = satchelFame.ToFixedPointDouble();
-            }
-
-            if (parameters.TryGetValue(17, out object? bonusFactor))
-            {
-                BonusFactor = 1 + bonusFactor.ToDouble();
-                BonusFactorInPercent = (BonusFactor - 1) * 100;
-                IsBonusFactorActive = BonusFactorInPercent > 0;
-
-                if (IsBonusFactorActive)
-                {
-                    BonusFactor = 1;
-                }
-            }
-
-            var fameWithZoneAndPremium = FameWithZoneMultiplier;
-            if (FameWithZoneMultiplier > 0 && IsPremiumBonus)
-            {
-                fameWithZoneAndPremium = FameWithZoneMultiplier * 1.5d;
-            }
-
-            if (fameWithZoneAndPremium > 0 && FameWithZoneMultiplier > 0)
-            {
-                PremiumFame = fameWithZoneAndPremium - FameWithZoneMultiplier;
-            }
-
-            TotalGainedFame = (FameWithZoneMultiplier + PremiumFame + SatchelFame) * BonusFactor;
+            var field = ActivityPacketValues.Long(parameters, key);
+            if (field.State == PacketFieldState.Valid && field.Value < 0) field = new(PacketFieldState.Invalid, default);
+            states[key] = field.State;
+            raw[key] = field.Optional;
         }
-        catch (Exception e)
+        var premium = ActivityPacketValues.Boolean(parameters, 5);
+        var factor = ActivityPacketValues.Double(parameters, 17);
+        if (factor.State == PacketFieldState.Valid && factor.Value < -1) factor = new(PacketFieldState.Invalid, default);
+        states[5] = premium.State; states[17] = factor.State;
+        ComponentStates = states; RawFixedPointComponents = raw;
+        TotalPlayerFame = (raw[1] ?? 0) / 10000d;
+        FameWithZoneMultiplier = (raw[2] ?? 0) / 10000d;
+        ZoneFame = (raw[3] ?? 0) / 10000d;
+        Multiplier = (raw[4] ?? 10000) / 10000d;
+        SatchelFame = (raw[10] ?? 0) / 10000d;
+        IsPremiumBonus = premium.Optional ?? false;
+        UsedBagInsightItemIndex = ActivityPacketValues.Long(parameters, 8).Optional ?? -1;
+        ReportedBonusIncrement = factor.Optional;
+        // The existing reference suppresses positive factors because those may
+        // already be included in the reported award. Retain evidence separately.
+        BonusFactor = factor.Optional is > 0 ? 1 : 1 + (factor.Optional ?? 0);
+        PremiumFame = IsPremiumBonus ? FameWithZoneMultiplier * .5d : 0;
+        if (states[2] == PacketFieldState.Valid && states[10] != PacketFieldState.Invalid
+            && premium.State != PacketFieldState.Invalid && factor.State != PacketFieldState.Invalid
+            && (factor.Optional is null or 0))
         {
-            Log.Error(e, e.Message);
+            var award = (FameWithZoneMultiplier + PremiumFame + SatchelFame) * BonusFactor;
+            if (double.IsFinite(award) && award >= 0) ObservedAward = award;
         }
     }
 }

@@ -12,6 +12,9 @@ public class JoinResponse : BaseOperation
     public string? IslandId { get; }
     public string? RawLocationId { get; }
     public string? IslandHomeCluster { get; }
+    public string? ParentClusterId { get; }
+    public string? SourceClusterId { get; }
+    public ActivityLocationDescriptor ActivityLocation => AlbionLocations.ResolveActivityLocation(RawLocationId, ParentClusterId, SourceClusterId);
     public Guid? MainInventoryContainerId { get; private set; }
     public IReadOnlyList<long> MainInventoryItemObjectIds { get; private set; } = [];
     public readonly AlbionLocation playerLocation;
@@ -54,6 +57,10 @@ public class JoinResponse : BaseOperation
             if (parameters.TryGetValue(81, out var homeCluster) && homeCluster is string home
                 && !string.IsNullOrWhiteSpace(home) && home.Trim().Length <= 200)
                 IslandHomeCluster = home.Trim();
+            if (parameters.TryGetValue(65, out var parentCluster) && parentCluster is string parent && !string.IsNullOrWhiteSpace(parent) && parent.Length <= 200)
+                ParentClusterId = parent.Trim();
+            if (parameters.TryGetValue(66, out var sourceCluster) && sourceCluster is string source && !string.IsNullOrWhiteSpace(source) && source.Length <= 200)
+                SourceClusterId = source.Trim();
 
             if (parameters.TryGetValue(58, out object? guildNameData))
             {

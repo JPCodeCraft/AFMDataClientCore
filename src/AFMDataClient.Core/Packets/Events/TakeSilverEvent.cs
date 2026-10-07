@@ -1,76 +1,51 @@
 using Albion.Network;
-using Serilog;
-using System;
-using System.Collections.Generic;
 
 namespace AlbionDataAvalonia.Network.Events;
 
 public class TakeSilverEvent : BaseEvent
 {
-    public long? ObjectId { get; private set; }
-    public long? TargetEntityId { get; private set; }
-    public long TimeStamp { get; private set; }
-    public double YieldPreTax { get; private set; }
-    public double GuildTax { get; private set; }
-    public double ClusterTax { get; private set; }
-    public bool IsPremiumBonus { get; private set; }
-    public double Multiplier { get; private set; }
-    public double SilverGained { get; private set; }
+    public long? ObjectId { get; }
+    public long? TargetEntityId { get; }
+    public long TimeStamp { get; }
+    public long? GrossRaw { get; }
+    public long? ClusterTaxRaw { get; }
+    public long? GuildTaxRaw { get; }
+    public long? AlliancePenaltyRaw { get; }
+    public long? NetRaw { get; }
+    public PacketFieldState GrossState { get; }
+    public PacketFieldState ClusterTaxState { get; }
+    public PacketFieldState GuildTaxState { get; }
+    public PacketFieldState AlliancePenaltyState { get; }
+    public double YieldPreTax => (GrossRaw ?? 0) / 10000d;
+    public double GuildTax => (GuildTaxRaw ?? 0) / 10000d;
+    public double ClusterTax => (ClusterTaxRaw ?? 0) / 10000d;
+    public double AlliancePenalty => (AlliancePenaltyRaw ?? 0) / 10000d;
+    public bool IsPremiumBonus { get; }
+    public double Multiplier { get; }
+    public double SilverGained => (NetRaw ?? 0) / 10000d;
 
     public TakeSilverEvent(Dictionary<byte, object> parameters) : base(parameters)
     {
-        Log.Verbose("Got {PacketType} packet.", GetType());
-        try
+        ObjectId = ActivityPacketValues.Long(parameters, 0).Optional;
+        TimeStamp = ActivityPacketValues.Long(parameters, 1).Optional ?? 0;
+        TargetEntityId = ActivityPacketValues.Long(parameters, 2).Optional;
+        var gross = NonNegative(ActivityPacketValues.Long(parameters, 3));
+        var cluster = NonNegative(ActivityPacketValues.Long(parameters, 4));
+        var guild = NonNegative(ActivityPacketValues.Long(parameters, 5));
+        var alliance = NonNegative(ActivityPacketValues.Long(parameters, 6));
+        GrossState = gross.State; ClusterTaxState = cluster.State; GuildTaxState = guild.State; AlliancePenaltyState = alliance.State;
+        GrossRaw = gross.Optional; ClusterTaxRaw = cluster.Optional; GuildTaxRaw = guild.Optional; AlliancePenaltyRaw = alliance.Optional;
+        // Omitted taxes mean no tax. Malformed taxes leave the net unknown.
+        if (gross.State == PacketFieldState.Valid && cluster.State != PacketFieldState.Invalid
+            && guild.State != PacketFieldState.Invalid && alliance.State != PacketFieldState.Invalid)
         {
-            if (parameters.TryGetValue(0, out object? objectId))
-            {
-                ObjectId = objectId.ToLong();
-            }
-
-            if (parameters.TryGetValue(1, out object? timeStamp))
-            {
-                TimeStamp = timeStamp.ToLong();
-            }
-
-            if (parameters.TryGetValue(2, out object? targetEntityId))
-            {
-                TargetEntityId = targetEntityId.ToLong();
-            }
-
-            if (parameters.TryGetValue(3, out object? yieldPreTax))
-            {
-                YieldPreTax = yieldPreTax.ToFixedPointDouble();
-            }
-
-            var hasGuildTax = parameters.TryGetValue(5, out object? guildTax) && guildTax is not null;
-            if (hasGuildTax)
-            {
-                GuildTax = guildTax.ToFixedPointDouble();
-            }
-
-            var hasClusterTax = parameters.TryGetValue(6, out object? clusterTax) && clusterTax is not null;
-            if (hasClusterTax)
-            {
-                ClusterTax = clusterTax.ToFixedPointDouble();
-            }
-
-            if (parameters.TryGetValue(7, out object? isPremiumBonus))
-            {
-                IsPremiumBonus = isPremiumBonus.ToBool();
-            }
-
-            if (parameters.TryGetValue(8, out object? multiplier))
-            {
-                Multiplier = multiplier.ToFixedPointDouble();
-            }
-
-            SilverGained = hasGuildTax || hasClusterTax
-                ? YieldPreTax - GuildTax - ClusterTax
-                : YieldPreTax;
+            var taxes = (decimal)(cluster.Optional ?? 0) + (guild.Optional ?? 0) + (alliance.Optional ?? 0);
+            if (taxes <= gross.Value) NetRaw = gross.Value - (long)taxes;
         }
-        catch (Exception e)
-        {
-            Log.Error(e, e.Message);
-        }
+        IsPremiumBonus = ActivityPacketValues.Boolean(parameters, 7).Optional ?? false;
+        Multiplier = (ActivityPacketValues.Long(parameters, 8).Optional ?? 10000) / 10000d;
     }
+
+    private static PacketField<long> NonNegative(PacketField<long> field) =>
+        field.State == PacketFieldState.Valid && field.Value < 0 ? new(PacketFieldState.Invalid, default) : field;
 }

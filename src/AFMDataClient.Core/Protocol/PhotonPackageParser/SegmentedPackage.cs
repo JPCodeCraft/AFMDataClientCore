@@ -1,16 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
+using Albion.Network;
 
 namespace PhotonPackageParser
 {
     internal readonly struct SegmentedPackageKey : IEquatable<SegmentedPackageKey>
     {
         public SegmentedPackageKey(
+            string directionalConnection,
             short peerId,
             int challenge,
             byte channelId,
             int startSequenceNumber)
         {
+            DirectionalConnection = directionalConnection;
             PeerId = peerId;
             Challenge = challenge;
             ChannelId = channelId;
@@ -18,13 +21,14 @@ namespace PhotonPackageParser
         }
 
         public short PeerId { get; }
+        public string DirectionalConnection { get; }
         public int Challenge { get; }
         public byte ChannelId { get; }
         public int StartSequenceNumber { get; }
 
         public bool Equals(SegmentedPackageKey other)
         {
-            return PeerId == other.PeerId
+            return DirectionalConnection == other.DirectionalConnection && PeerId == other.PeerId
                 && Challenge == other.Challenge
                 && ChannelId == other.ChannelId
                 && StartSequenceNumber == other.StartSequenceNumber;
@@ -39,7 +43,8 @@ namespace PhotonPackageParser
         {
             unchecked
             {
-                var hashCode = PeerId.GetHashCode();
+                var hashCode = StringComparer.Ordinal.GetHashCode(DirectionalConnection);
+                hashCode = (hashCode * 397) ^ PeerId.GetHashCode();
                 hashCode = (hashCode * 397) ^ Challenge;
                 hashCode = (hashCode * 397) ^ ChannelId.GetHashCode();
                 hashCode = (hashCode * 397) ^ StartSequenceNumber;
@@ -51,6 +56,9 @@ namespace PhotonPackageParser
     internal sealed class SegmentedPackage
     {
         public int TotalLength;
+        public PhotonMessageIdentity? MessageIdentity;
+        public DateTime CapturedAtUtc;
+        public string ConnectionId = string.Empty;
         public int FragmentCount;
         public long BytesWritten;
         public byte[] TotalPayload = Array.Empty<byte>();

@@ -13,6 +13,9 @@ public sealed class OtherGrabbedLootEvent : BaseEvent
     public bool IsSilver { get; }
     public int ItemId { get; }
     public long Amount { get; }
+    public long? RawAmount { get; }
+    public long? SilverRaw => IsSilver ? RawAmount : null;
+    public PacketFieldState AmountState { get; }
 
     public OtherGrabbedLootEvent(Dictionary<byte, object> parameters) : base(parameters)
     {
@@ -43,11 +46,10 @@ public sealed class OtherGrabbedLootEvent : BaseEvent
                 ItemId = checked((int)itemId.ToLong());
             }
 
-            if (parameters.TryGetValue(5, out var amount))
-            {
-                var rawAmount = amount.ToLong();
-                Amount = IsSilver ? rawAmount / 10000 : rawAmount;
-            }
+            var amount = ActivityPacketValues.Long(parameters, 5);
+            AmountState = amount.State;
+            RawAmount = amount.Optional;
+            if (RawAmount is { } rawAmount) Amount = IsSilver ? rawAmount / 10000 : rawAmount;
         }
         catch (Exception e)
         {

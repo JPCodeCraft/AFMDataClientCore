@@ -4,6 +4,32 @@ Shared protocol and upload implementation for the [Avalonia desktop client](http
 
 ## What belongs here
 
+### Activity packet contracts
+
+The `beta` branch adds packet evidence for the desktop activity journal. Sessions,
+encounters, party relationships, correlations, and database persistence belong to
+the host; the shared parser does not aggregate activity or infer rewards.
+
+Health packets retain signed floating-point changes and distinguish Missing,
+Valid, and Invalid resulting health. Sparse batch indexes remain attached to
+their entries. Currency packets expose raw integer values at scale 10,000;
+`TakeSilver` separates cluster, guild, and alliance deductions. Fame exposes
+the observed award and field states without assigning a PvE/PvP category.
+Outcome packets preserve optional lethality rather than treating omission as a
+nonlethal death. These protocol mappings still require live-game validation.
+
+Typed packets carry `MessageIdentity` and the original capture time. Its origin
+key includes receiver generation, directional stream, peer/challenge, channel,
+and reliable/unreliable/fragment sequence. Call `ResetTransportContext()` when
+starting a new capture interval. Fragment assembly is stream-scoped and retains
+the first observed fragment's context; delivery order and uploads are unchanged.
+
+`AlbionLocations.ResolveActivityLocation` preserves actual map names and instance
+identity independently of market aliases. The embedded lookup is generated from
+the pinned public world source by `tools/generate_activity_world.py`; only map
+identity, original display name, and kind are retained. Generated instance tokens
+take precedence. New or unclassified maps remain Unknown.
+
 The `assets/icons` directory holds images shared by the clients. Both applications
 link `icon_shop_premium.png` into their own platform resources at build time;
 the core library does not depend on either UI framework.

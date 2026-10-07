@@ -16,6 +16,9 @@ namespace Albion.Network
         internal event Action<object>? PacketObserved;
         private readonly object contextGate = new();
         private AFMDataClient.Core.CapturedDatagram? currentDatagram;
+        protected override string CurrentTransportStream => currentDatagram?.DirectionalConnectionId ?? string.Empty;
+        protected override string CurrentReceiveConnectionId => currentDatagram?.ConnectionId ?? string.Empty;
+        protected override DateTime CurrentReceiveCapturedAtUtc => currentDatagram?.CapturedAt ?? DateTime.UtcNow;
 
         public PacketReceiveResult Receive(AFMDataClient.Core.CapturedDatagram datagram)
         {
@@ -46,10 +49,11 @@ namespace Albion.Network
 
         private void NotifyObserved(object packet)
         {
-            if (packet is DecodedPacket decoded && currentDatagram is { } captured)
+            if (packet is DecodedPacket decoded)
             {
-                decoded.ConnectionId = captured.ConnectionId;
-                decoded.CapturedAt = captured.CapturedAt;
+                decoded.ConnectionId = CurrentMessageConnectionId;
+                decoded.CapturedAt = CurrentMessageCapturedAtUtc;
+                decoded.MessageIdentity = CurrentMessageIdentity;
             }
             if (PacketObserved is null) return;
             foreach (Action<object> observer in PacketObserved.GetInvocationList())
