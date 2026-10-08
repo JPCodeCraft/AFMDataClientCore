@@ -18,10 +18,21 @@ public class NewSimpleItemEvent : BaseEvent
     private readonly bool isAwakened;
 
     public NewItem? Item { get; }
+    public PacketFieldState ObjectIdState { get; }
+    public PacketFieldState ItemIdState { get; }
+    public PacketFieldState QuantityState { get; }
+    public bool HasValidAcquisitionMetadata => ObjectIdState == PacketFieldState.Valid
+        && ItemIdState == PacketFieldState.Valid && QuantityState == PacketFieldState.Valid;
 
     public NewSimpleItemEvent(Dictionary<byte, object> parameters) : base(parameters)
     {
         Log.Verbose("Got {PacketType} packet.", GetType());
+        var objectIdentity = ActivityPacketValues.Long(parameters, 0);
+        ObjectIdState = objectIdentity.Optional is <= 0 ? PacketFieldState.Invalid : objectIdentity.State;
+        var itemIdentity = ActivityPacketValues.Long(parameters, 1);
+        ItemIdState = itemIdentity.Optional is <= 0 or > int.MaxValue ? PacketFieldState.Invalid : itemIdentity.State;
+        var observedQuantity = ActivityPacketValues.Long(parameters, 2);
+        QuantityState = observedQuantity.Optional is <= 0 or > int.MaxValue ? PacketFieldState.Invalid : observedQuantity.State;
         try
         {
             if (parameters.TryGetValue(0, out object? objectIdValue))

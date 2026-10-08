@@ -1,26 +1,18 @@
 using Albion.Network;
-using Serilog;
-using System;
-using System.Collections.Generic;
+using AlbionDataAvalonia.Network.Events;
 
 namespace AlbionDataAvalonia.Network.Requests;
 
-public class FishingFinishRequest : BaseOperation
+public sealed class FishingFinishRequest : BaseOperation
 {
     public bool Succeeded { get; }
+    public PacketFieldState SucceededState { get; }
+    public bool IsValid => SucceededState == PacketFieldState.Valid;
 
     public FishingFinishRequest(Dictionary<byte, object> parameters) : base(parameters)
     {
-        try
-        {
-            if (parameters.TryGetValue(1, out var succeeded))
-            {
-                Succeeded = succeeded.ToBool();
-            }
-        }
-        catch (Exception e)
-        {
-            Log.Error(e, e.Message);
-        }
+        var succeeded = ActivityPacketValues.Boolean(parameters, 1);
+        SucceededState = succeeded.State;
+        Succeeded = succeeded.Optional ?? false;
     }
 }
