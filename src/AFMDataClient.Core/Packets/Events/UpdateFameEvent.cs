@@ -19,6 +19,9 @@ public class UpdateFameEvent : BaseEvent
     public double ZoneFame { get; }
     public double TotalGainedFame => ObservedAward ?? 0;
     public double? ObservedAward { get; }
+    public double? ObservedProgressionAward { get; }
+    public long? ProgressionDetailToken { get; }
+    public PacketFieldState ProgressionDetailTokenState { get; }
     public double? ReportedBonusIncrement { get; }
     public IReadOnlyDictionary<byte, PacketFieldState> ComponentStates { get; }
     public IReadOnlyDictionary<byte, long?> RawFixedPointComponents { get; }
@@ -30,7 +33,7 @@ public class UpdateFameEvent : BaseEvent
         ActorObjectId = ActorObjectIdState == PacketFieldState.Valid ? actor.Value : null;
         var states = new Dictionary<byte, PacketFieldState>();
         var raw = new Dictionary<byte, long?>();
-        foreach (byte key in new byte[] { 1, 2, 3, 4, 10 })
+        foreach (byte key in new byte[] { 1, 2, 3, 4, 10, 12, 13 })
         {
             var field = ActivityPacketValues.Long(parameters, key);
             if (field.State == PacketFieldState.Valid && field.Value < 0) field = new(PacketFieldState.Invalid, default);
@@ -41,6 +44,9 @@ public class UpdateFameEvent : BaseEvent
         var factor = ActivityPacketValues.Double(parameters, 17);
         if (factor.State == PacketFieldState.Valid && factor.Value < -1) factor = new(PacketFieldState.Invalid, default);
         states[5] = premium.State; states[17] = factor.State;
+        var token = ActivityPacketValues.Long(parameters, 14);
+        ProgressionDetailToken = token.Optional;
+        ProgressionDetailTokenState = token.State;
         ComponentStates = states; RawFixedPointComponents = raw;
         TotalPlayerFame = (raw[1] ?? 0) / 10000d;
         FameWithZoneMultiplier = (raw[2] ?? 0) / 10000d;
@@ -60,6 +66,18 @@ public class UpdateFameEvent : BaseEvent
         {
             var award = (FameWithZoneMultiplier + PremiumFame + SatchelFame) * BonusFactor;
             if (double.IsFinite(award) && award >= 0) ObservedAward = award;
+        }
+        // Gathering/fishing captures with equal parameters 12/13 report the
+        // enhanced progression amount, including premium but before parameter
+        // 17's bonus. The resulting amount matches both the applicable Destiny
+        // Board increment and the game's fame message. These equal components
+        // describe one award; adding them or applying premium again duplicates it.
+        // Hosts select it only with matching gathering/fishing source evidence.
+        if (states[12] == PacketFieldState.Valid && states[13] == PacketFieldState.Valid
+            && raw[12] is > 0 && raw[12] == raw[13] && factor.State != PacketFieldState.Invalid)
+        {
+            var award = raw[12]!.Value / 10000d * BonusFactor;
+            if (double.IsFinite(award) && award >= 0) ObservedProgressionAward = award;
         }
     }
 }

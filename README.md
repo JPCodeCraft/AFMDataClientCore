@@ -20,6 +20,11 @@ on an award; cumulative player fame remains a separate base-only statistic.
 `AchievementProgressInfoEvent` exposes actor/index and bounded numeric progress
 evidence. Achievement descriptors retain XML mission types for host-owned source
 matching; progress values are never additional fame awards.
+Fame also retains enhanced progression components 12/13. When valid, positive,
+and equal, they expose one award including premium and preceding the reported
+bonus. Captured skinning and fishing progression verifies this amount; hosts
+select it only with matching activity-source evidence. Component 14 remains an
+uninterpreted detail token.
 Outcome packets preserve optional lethality rather than treating omission as a
 nonlethal death. These protocol mappings still require live-game validation.
 
