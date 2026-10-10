@@ -4,6 +4,8 @@ namespace AlbionDataAvalonia.Network.Events;
 
 public class UpdateFameEvent : BaseEvent
 {
+    public long? ActorObjectId { get; }
+    public PacketFieldState ActorObjectIdState { get; }
     public double BonusFactor { get; }
     public double BonusFactorInPercent => (ReportedBonusIncrement ?? 0) * 100;
     public double FameWithZoneMultiplier { get; }
@@ -23,6 +25,9 @@ public class UpdateFameEvent : BaseEvent
 
     public UpdateFameEvent(Dictionary<byte, object> parameters) : base(parameters)
     {
+        var actor = ActivityPacketValues.Long(parameters, 0);
+        ActorObjectIdState = actor.Optional is <= 0 ? PacketFieldState.Invalid : actor.State;
+        ActorObjectId = ActorObjectIdState == PacketFieldState.Valid ? actor.Value : null;
         var states = new Dictionary<byte, PacketFieldState>();
         var raw = new Dictionary<byte, long?>();
         foreach (byte key in new byte[] { 1, 2, 3, 4, 10 })
@@ -45,15 +50,14 @@ public class UpdateFameEvent : BaseEvent
         IsPremiumBonus = premium.Optional ?? false;
         UsedBagInsightItemIndex = ActivityPacketValues.Long(parameters, 8).Optional ?? -1;
         ReportedBonusIncrement = factor.Optional;
-        // The existing reference suppresses positive factors because those may
-        // already be included in the reported award. Retain evidence separately.
-        BonusFactor = factor.Optional is > 0 ? 1 : 1 + (factor.Optional ?? 0);
+        // Captured Destiny Board increments confirm that parameter 2 excludes
+        // premium and parameter 17's bonus. Parameter 1 is a base-only cumulative
+        // statistic and must not be used as an awarded-fame delta.
+        BonusFactor = 1 + (factor.Optional ?? 0);
         PremiumFame = IsPremiumBonus ? FameWithZoneMultiplier * .5d : 0;
         if (states[2] == PacketFieldState.Valid && states[10] != PacketFieldState.Invalid
             && premium.State != PacketFieldState.Invalid && factor.State != PacketFieldState.Invalid)
         {
-            // Positive parameter 17 uses the applied factor of one above;
-            // its presence must not suppress the per-event award.
             var award = (FameWithZoneMultiplier + PremiumFame + SatchelFame) * BonusFactor;
             if (double.IsFinite(award) && award >= 0) ObservedAward = award;
         }

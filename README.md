@@ -14,7 +14,12 @@ Health packets retain signed floating-point changes and distinguish Missing,
 Valid, and Invalid resulting health. Sparse batch indexes remain attached to
 their entries. Currency packets expose raw integer values at scale 10,000;
 `TakeSilver` separates cluster, guild, and alliance deductions. Fame exposes
-the observed award and field states without assigning a PvE/PvP category.
+the observed award and field states without assigning an activity category.
+Captured Destiny Board increments verify the premium and positive bonus factors
+on an award; cumulative player fame remains a separate base-only statistic.
+`AchievementProgressInfoEvent` exposes actor/index and bounded numeric progress
+evidence. Achievement descriptors retain XML mission types for host-owned source
+matching; progress values are never additional fame awards.
 Outcome packets preserve optional lethality rather than treating omission as a
 nonlethal death. These protocol mappings still require live-game validation.
 

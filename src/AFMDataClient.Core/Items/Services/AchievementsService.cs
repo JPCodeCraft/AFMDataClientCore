@@ -3,6 +3,7 @@ using Serilog;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
@@ -10,7 +11,11 @@ namespace AlbionDataAvalonia.Items.Services
 {
     public class AchievementsService
     {
-        public readonly record struct AchievementInfo(string Id, bool IsTemplate);
+        public readonly record struct AchievementInfo(string Id, bool IsTemplate)
+        {
+            public string? Category { get; init; }
+            public IReadOnlyList<string> MissionTypes { get; init; } = Array.Empty<string>();
+        }
 
         private const string XmlUrl = "https://cdn.albionfreemarket.com/ao-bin-dumps/achievements.xml";
         private List<AchievementInfo> achievements = new();
@@ -51,7 +56,19 @@ namespace AlbionDataAvalonia.Items.Services
                 {
                     throw new InvalidDataException("Achievement data contains an entry without an ID.");
                 }
-                loadedAchievements.Add(new AchievementInfo(id, isTemplate));
+                var missionTypes = element.Descendants()
+                    .Where(child => string.Equals(child.Name.LocalName, "mission", StringComparison.OrdinalIgnoreCase))
+                    .Select(child => child.Attribute("type")?.Value)
+                    .Prepend(element.Attribute("missiontype")?.Value)
+                    .Where(type => !string.IsNullOrWhiteSpace(type))
+                    .Select(type => type!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                loadedAchievements.Add(new AchievementInfo(id, isTemplate)
+                {
+                    Category = element.Attribute("category")?.Value,
+                    MissionTypes = Array.AsReadOnly(missionTypes)
+                });
             }
             if (loadedAchievements.Count == 0)
             {
