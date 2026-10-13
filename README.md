@@ -21,12 +21,19 @@ on an award; cumulative player fame remains a separate base-only statistic.
 evidence. Achievement descriptors retain XML mission types for host-owned source
 matching; progress values are never additional fame awards.
 Fame also retains enhanced progression components 12/13. When valid, positive,
-and equal, they expose one award including premium and preceding the reported
-bonus. Captured skinning and fishing progression verifies this amount; hosts
-select it only with matching activity-source evidence. Component 14 remains an
+and equal, they expose one additional component already including its bonuses.
+Add it once to the valid ordinary award; do not apply premium or the reported
+bonus to that component again. Captured skinning and fishing progression verifies
+these totals, including skinning without a reported bonus; hosts select them
+only with matching activity-source evidence. Component 14 remains an
 uninterpreted detail token.
 Outcome packets preserve optional lethality rather than treating omission as a
 nonlethal death. These protocol mappings still require live-game validation.
+
+The event ID map follows the [current reference revision](https://github.com/Triky313/AlbionOnline-StatisticsAnalysis/blob/13e6263711cb7ab5ded79e8d46dbceadf5ac7fff/src/StatisticsAnalysisTool/Network/EventCodes.cs).
+The retired `DebugMobInfo` slot is absent; October 2026 capture confirms the
+shifted achievement progression and outcome IDs. Existing symbolic names are
+retained where the reference uses another name for the same slot.
 
 Typed packets carry `MessageIdentity` and the original capture time. Its origin
 key includes receiver generation, directional stream, peer/challenge, channel,

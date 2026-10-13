@@ -67,16 +67,17 @@ public class UpdateFameEvent : BaseEvent
             var award = (FameWithZoneMultiplier + PremiumFame + SatchelFame) * BonusFactor;
             if (double.IsFinite(award) && award >= 0) ObservedAward = award;
         }
-        // Gathering/fishing captures with equal parameters 12/13 report the
-        // enhanced progression amount, including premium but before parameter
-        // 17's bonus. The resulting amount matches both the applicable Destiny
-        // Board increment and the game's fame message. These equal components
-        // describe one award; adding them or applying premium again duplicates it.
-        // Hosts select it only with matching gathering/fishing source evidence.
-        if (states[12] == PacketFieldState.Valid && states[13] == PacketFieldState.Valid
-            && raw[12] is > 0 && raw[12] == raw[13] && factor.State != PacketFieldState.Invalid)
+        // Gathering/fishing captures with equal parameters 12/13 report one
+        // additional progression component. It already includes its applicable
+        // bonuses: add it once to the ordinary award without multiplying it by
+        // premium or parameter 17 again. Captures with and without parameter 17
+        // confirm the resulting applicable Destiny Board increment. Hosts select
+        // it only with matching gathering/fishing source evidence.
+        if (ObservedAward is { } ordinaryAward
+            && states[12] == PacketFieldState.Valid && states[13] == PacketFieldState.Valid
+            && raw[12] is > 0 && raw[12] == raw[13])
         {
-            var award = raw[12]!.Value / 10000d * BonusFactor;
+            var award = ordinaryAward + raw[12]!.Value / 10000d;
             if (double.IsFinite(award) && award >= 0) ObservedProgressionAward = award;
         }
     }
