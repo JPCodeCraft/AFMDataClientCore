@@ -20,6 +20,16 @@ the core library does not depend on either UI framework.
 
 The desktop Photon decoder is the source of truth. Fix protocol divergences here, then update the client pins. Some existing `Albion.Network`, `PhotonPackageParser` and `AlbionDataAvalonia.*` namespaces are retained to keep the extraction small; the library has no reference to either application, UI framework or database.
 
+## Protocol compatibility
+
+Event IDs follow the October 12, 2026 game patch, including
+`RedZoneWorldMapEvent` at 479. Equipment item packets support both layouts:
+a string crafter name at parameter 6 shifts quality/durability to 7/8;
+otherwise quality/durability occupy 6/7 and parameter 8 contains spells.
+Inventory snapshots read item identities at parameter 0 and the container GUID
+at parameter 2. Join retains the main inventory container from parameter 54
+even when parameter 55 omits the initial item list.
+
 ## Choose features
 
 The host supplies HTTP clients, an `IUploadAuthSession` adapter and an app-owned storage directory. Configure reference-data caching before constructing the core, and keep the supplied clients alive until after core disposal.
