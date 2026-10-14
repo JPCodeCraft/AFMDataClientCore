@@ -29,6 +29,10 @@ only with matching activity-source evidence. Component 14 remains an
 uninterpreted detail token.
 Outcome packets preserve optional lethality rather than treating omission as a
 nonlethal death. These protocol mappings still require live-game validation.
+`KilledPlayerEvent` retains optional parameter 3 as nonnegative fixed-point base
+fame with its validity state. Captured kills match this amount to `UpdateFame`
+parameter 2; it is matching evidence, not a second award. Premium and other
+bonuses remain part of `UpdateFame`, and an omitted kill amount stays unknown.
 
 Activity location descriptors include tiers from explicit world-file tokens and
 zone types from the pinned world classification. Generated dungeon and Mists IDs
