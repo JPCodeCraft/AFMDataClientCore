@@ -374,7 +374,7 @@ public sealed partial class FarmingTrackerService : IDisposable
             islandMetadata[id] = new IslandMetadata(
                 value.OwnerName ?? previous?.OwnerName,
                 previous?.HomeCluster,
-                value.LayoutId ?? previous?.LayoutId);
+                value.IslandLayoutId ?? previous?.LayoutId);
         }
         if (island?.IslandId == id && island is not null)
         {

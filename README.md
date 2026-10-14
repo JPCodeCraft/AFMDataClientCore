@@ -30,6 +30,18 @@ uninterpreted detail token.
 Outcome packets preserve optional lethality rather than treating omission as a
 nonlethal death. These protocol mappings still require live-game validation.
 
+Activity location descriptors include tiers from explicit world-file tokens and
+zone types from the pinned world classification. Generated dungeon and Mists IDs
+remain instance identities; their parent map never supplies their tier or zone.
+`NewRandomDungeonExitEvent` preserves entrance metadata, while `ExitEnterStartRequest`
+identifies the selected entrance at parameter 1 and `JoinResponse.SourceExitPosition`
+preserves parameter 64. Hosts own entrance matching and metadata persistence.
+`ChangeClusterResponse` retains the complete bounded layout ID and dungeon bytes;
+farming uses its island-only `IslandLayoutId`. Mists tier, zone and solo/duo mode
+come from exact layouts in the compact pinned reference. Entrance rarity and
+transition rarity remain optional; random-dungeon enchantment is used only when
+the entrance explicitly reports that it has not already been entered.
+
 The event ID map follows the [current reference revision](https://github.com/Triky313/AlbionOnline-StatisticsAnalysis/blob/13e6263711cb7ab5ded79e8d46dbceadf5ac7fff/src/StatisticsAnalysisTool/Network/EventCodes.cs).
 The retired `DebugMobInfo` slot is absent; October 2026 capture confirms the
 shifted achievement progression and outcome IDs. Existing symbolic names are

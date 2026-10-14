@@ -1,6 +1,7 @@
 using Albion.Network;
 using AlbionDataAvalonia.Locations;
 using AlbionDataAvalonia.Locations.Models;
+using AlbionDataAvalonia.Network.Events;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -14,6 +15,7 @@ public class JoinResponse : BaseOperation
     public string? IslandHomeCluster { get; }
     public string? ParentClusterId { get; }
     public string? SourceClusterId { get; }
+    public ActivityWorldPosition? SourceExitPosition { get; }
     public ActivityLocationDescriptor ActivityLocation => AlbionLocations.ResolveActivityLocation(RawLocationId, ParentClusterId, SourceClusterId);
     public Guid? MainInventoryContainerId { get; private set; }
     public IReadOnlyList<long> MainInventoryItemObjectIds { get; private set; } = [];
@@ -29,6 +31,7 @@ public class JoinResponse : BaseOperation
     public JoinResponse(Dictionary<byte, object> parameters) : base(parameters)
     {
         Log.Verbose("Got {PacketType} packet.", GetType());
+        SourceExitPosition = ActivityPacketValues.Position(parameters, 64);
         try
         {
             if (parameters.TryGetValue(0, out object objectId))

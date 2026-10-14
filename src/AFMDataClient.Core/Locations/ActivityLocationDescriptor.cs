@@ -9,7 +9,7 @@ public enum ActivityMapKind
 }
 
 public sealed record ActivityLocationDescriptor(string RawLocationId, string DisplayName, ActivityMapKind Kind,
-    Guid? InstanceId, string? ParentClusterId, string? SourceClusterId)
+    Guid? InstanceId, string? ParentClusterId, string? SourceClusterId, int? Tier = null, string? ZoneType = null)
 {
     public bool IsInstance => Kind is ActivityMapKind.RandomDungeon or ActivityMapKind.StaticDungeon
         or ActivityMapKind.CorruptedDungeon or ActivityMapKind.Hellgate or ActivityMapKind.Expedition
@@ -21,7 +21,7 @@ public sealed record ActivityLocationDescriptor(string RawLocationId, string Dis
 internal static class ActivityWorldReference
 {
     public const string SourceRevision = "d5a47d4ba49d5bf2c0253b224be85fe26121cfa1";
-    private static readonly IReadOnlyDictionary<string, (string Name, ActivityMapKind Kind)> Maps = Load();
+    private static readonly IReadOnlyDictionary<string, (string Name, ActivityMapKind Kind, int? Tier, string? ZoneType)> Maps = Load();
     private static readonly (string Token, string Name, ActivityMapKind Kind)[] Generated =
     [
         ("CORRUPTEDDUNGEON", "Corrupted Dungeon", ActivityMapKind.CorruptedDungeon),
@@ -59,22 +59,24 @@ internal static class ActivityWorldReference
         foreach (var candidate in new[] { id }.Concat(parts.Reverse()))
         {
             if (Maps.TryGetValue(candidate, out var map))
-                return new(id, map.Name, map.Kind, guid, parent, source);
+                return new(id, map.Name, map.Kind, guid, parent, source, map.Tier, map.ZoneType);
         }
         return new(id, string.IsNullOrEmpty(id) ? "Unknown" : id, ActivityMapKind.Unknown, guid, parent, source);
     }
 
-    private static IReadOnlyDictionary<string, (string Name, ActivityMapKind Kind)> Load()
+    private static IReadOnlyDictionary<string, (string Name, ActivityMapKind Kind, int? Tier, string? ZoneType)> Load()
     {
         using var stream = typeof(ActivityWorldReference).Assembly.GetManifestResourceStream("AFMDataClient.Core.Locations.activity-world.json")
             ?? throw new InvalidOperationException("Activity world classification resource is missing.");
         using var document = JsonDocument.Parse(stream);
-        var maps = new Dictionary<string, (string, ActivityMapKind)>(StringComparer.OrdinalIgnoreCase);
+        var maps = new Dictionary<string, (string, ActivityMapKind, int?, string?)>(StringComparer.OrdinalIgnoreCase);
         foreach (var map in document.RootElement.GetProperty("maps").EnumerateObject())
         {
             var values = map.Value.EnumerateArray().ToArray();
-            if (values.Length == 2 && Enum.TryParse<ActivityMapKind>(values[1].GetString(), out var kind))
-                maps[map.Name] = (values[0].GetString() ?? map.Name, kind);
+            if (values.Length == 4 && Enum.TryParse<ActivityMapKind>(values[1].GetString(), out var kind))
+                maps[map.Name] = (values[0].GetString() ?? map.Name, kind,
+                    values[2].ValueKind == JsonValueKind.Number ? values[2].GetInt32() : null,
+                    values[3].GetString());
         }
         return maps;
     }

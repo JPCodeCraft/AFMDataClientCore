@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Globalization;
+using AlbionDataAvalonia.Locations;
 
 namespace AlbionDataAvalonia.Network.Events;
 
@@ -44,6 +45,15 @@ internal static class ActivityPacketValues
 
     public static string Text(IReadOnlyDictionary<byte, object> values, byte key) =>
         values.TryGetValue(key, out var raw) && raw is string text ? text[..Math.Min(text.Length, 200)] : string.Empty;
+
+    public static ActivityWorldPosition? Position(IReadOnlyDictionary<byte, object> values, byte key)
+    {
+        if (!values.TryGetValue(key, out var raw) || raw is not Array { Rank: 1, Length: >= 2 and <= 3 } array)
+            return null;
+        var x = Double(array.GetValue(0)).Optional;
+        var y = Double(array.GetValue(1)).Optional;
+        return x.HasValue && y.HasValue ? new(x.Value, y.Value) : null;
+    }
 
     public static Dictionary<int, object?> Indexed(IReadOnlyDictionary<byte, object> values, byte key)
     {
