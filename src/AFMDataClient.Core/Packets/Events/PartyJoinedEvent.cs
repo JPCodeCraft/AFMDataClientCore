@@ -8,6 +8,9 @@ namespace AlbionDataAvalonia.Network.Events;
 
 public class PartyJoinedEvent : BaseEvent
 {
+    // Current clients send member GUIDs and names at 8/9; older captures used 5/6.
+    private static readonly (byte Guids, byte Names)[] MemberKeys = [(8, 9), (5, 6)];
+
     public Dictionary<Guid, string> PartyUsers { get; } = new();
 
     public PartyJoinedEvent(Dictionary<byte, object> parameters) : base(parameters)
@@ -15,21 +18,30 @@ public class PartyJoinedEvent : BaseEvent
         Log.Verbose("Got {PacketType} packet.", GetType());
         try
         {
-            if (!parameters.TryGetValue(5, out object? guidData)
-                || !parameters.TryGetValue(6, out object? nameData))
+            foreach (var (guidKey, nameKey) in MemberKeys)
             {
-                return;
-            }
-
-            var guids = guidData.ToGuidArray();
-            var names = nameData.ToStringArray();
-            var count = Math.Min(guids.Length, names.Length);
-
-            for (var i = 0; i < count; i++)
-            {
-                if (guids[i] != Guid.Empty && !string.IsNullOrWhiteSpace(names[i]))
+                if (!parameters.TryGetValue(guidKey, out object? guidData)
+                    || !parameters.TryGetValue(nameKey, out object? nameData)
+                    || nameData is not string[] and not object[])
                 {
-                    PartyUsers[guids[i]] = names[i];
+                    continue;
+                }
+
+                var guids = guidData.ToGuidArray();
+                var names = nameData.ToStringArray();
+                var count = Math.Min(guids.Length, names.Length);
+
+                for (var i = 0; i < count; i++)
+                {
+                    if (guids[i] != Guid.Empty && !string.IsNullOrWhiteSpace(names[i]))
+                    {
+                        PartyUsers[guids[i]] = names[i];
+                    }
+                }
+
+                if (PartyUsers.Count > 0)
+                {
+                    return;
                 }
             }
         }
