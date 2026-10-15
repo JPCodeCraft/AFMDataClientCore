@@ -46,10 +46,9 @@ come from exact layouts in the compact pinned reference. Entrance rarity and
 transition rarity remain optional; random-dungeon enchantment is used only when
 the entrance explicitly reports that it has not already been entered.
 
-The event ID map follows the [current reference revision](https://github.com/Triky313/AlbionOnline-StatisticsAnalysis/blob/13e6263711cb7ab5ded79e8d46dbceadf5ac7fff/src/StatisticsAnalysisTool/Network/EventCodes.cs).
+Event and operation IDs follow the [albiondata-client 2026-10-12 code update](https://github.com/ao-data/albiondata-client/commit/d4f97421035943414e1b8f08eaf9c0f9d348aef7).
 The retired `DebugMobInfo` slot is absent; October 2026 capture confirms the
-shifted achievement progression and outcome IDs. Existing symbolic names are
-retained where the reference uses another name for the same slot.
+shifted achievement progression and outcome IDs.
 
 Typed packets carry `MessageIdentity` and the original capture time. Its origin
 key includes receiver generation, directional stream, peer/challenge, channel,

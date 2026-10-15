@@ -713,6 +713,5 @@
         ClusterSyncedBoolValuesSnapshot = 708, // 0x02C4
         ClusterSyncedIntValuesSnapshot = 709, // 0x02C5
         FixedRotationForcedMovementPositionUpdate = 710, // 0x02C6
-        InventoryFrozenSlotsUpdate = 711, // 0x02C7
     }
 }

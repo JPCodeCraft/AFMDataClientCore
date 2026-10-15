@@ -558,5 +558,6 @@
         SmartQueueRegionQueueInfo,
         SurveyCompleted,
         GetSurveyLogs,
+        ClientFrametimeSpike,
     }
 }
