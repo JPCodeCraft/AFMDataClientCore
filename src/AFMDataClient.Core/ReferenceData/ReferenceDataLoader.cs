@@ -18,6 +18,7 @@ public sealed class ReferenceDataLoader
     private readonly string cacheDirectory;
     private readonly SemaphoreSlim downloadSemaphore = new(3);
     private Func<ReferenceDataOptions> getReferenceDataOptions = () => DefaultSettings;
+    private Func<string, Stream?> openBundled = _ => null;
 
     public static ReferenceDataLoader Shared { get; private set; } = new(
         new HttpClient { Timeout = Timeout.InfiniteTimeSpan },
@@ -37,6 +38,13 @@ public sealed class ReferenceDataLoader
         this.getReferenceDataOptions = getReferenceDataOptions;
     }
 
+    // Hosts may ship base copies by file name; they are used only when nothing newer can be loaded.
+    public void ConfigureBundled(Func<string, Stream?> openBundled)
+    {
+        ArgumentNullException.ThrowIfNull(openBundled);
+        this.openBundled = openBundled;
+    }
+
     // Parse into a separate snapshot: validation must finish before publishing or caching data.
     public async Task<T> LoadAsync<T>(string url, Func<string, T> parse, CancellationToken cancellationToken = default)
     {
@@ -50,7 +58,8 @@ public sealed class ReferenceDataLoader
         var requestTimeout = GetDuration(settings.ReferenceDataRequestTimeoutSeconds, DefaultSettings.ReferenceDataRequestTimeoutSeconds);
         var uri = new Uri(url);
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(uri.AbsoluteUri)));
-        var cachePath = Path.Combine(cacheDirectory, $"{Path.GetFileName(uri.LocalPath)}.{hash}.cache");
+        var fileName = Path.GetFileName(uri.LocalPath);
+        var cachePath = Path.Combine(cacheDirectory, $"{fileName}.{hash}.cache");
 
         for (var attempt = 0; ; attempt++)
         {
@@ -101,18 +110,19 @@ public sealed class ReferenceDataLoader
                     }
                 }
 
-                if (attempt >= retryDelays.Length || !IsTransient(ex))
+                // A longer server cooldown is respected by stopping, not by retrying early
+                // or holding startup open for an unbounded amount of time.
+                if (attempt >= retryDelays.Length || !IsTransient(ex) || retryAfter > retryDelays.Max())
                 {
+                    if (TryLoadBundled(fileName, parse, out var bundledValue))
+                    {
+                        Log.Warning(ex, "Reference data unavailable from {Url}; using the bundled copy", url);
+                        return bundledValue;
+                    }
                     throw;
                 }
 
                 var delay = retryDelays[attempt];
-                // A longer server cooldown is respected by stopping, not by retrying early
-                // or holding startup open for an unbounded amount of time.
-                if (retryAfter > retryDelays.Max())
-                {
-                    throw;
-                }
                 if (retryAfter > delay)
                 {
                     delay = retryAfter.Value;
@@ -121,6 +131,27 @@ public sealed class ReferenceDataLoader
                 Log.Warning(ex, "Reference data unavailable from {Url}; retry {Retry} of {RetryCount} in {DelaySeconds} seconds", url, attempt + 1, retryDelays.Length, delay.TotalSeconds);
                 await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
+        }
+    }
+
+    private bool TryLoadBundled<T>(string fileName, Func<string, T> parse, out T value)
+    {
+        value = default!;
+        try
+        {
+            using var stream = openBundled(fileName);
+            if (stream is null)
+            {
+                return false;
+            }
+            using var reader = new StreamReader(stream);
+            value = parse(reader.ReadToEnd());
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to read or validate bundled reference data {FileName}", fileName);
+            return false;
         }
     }
 

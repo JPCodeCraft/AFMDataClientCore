@@ -83,7 +83,7 @@ The desktop Photon decoder is the source of truth. Fix protocol divergences here
 
 ## Choose features
 
-The host supplies HTTP clients, an `IUploadAuthSession` adapter and an app-owned storage directory. Configure reference-data caching before constructing the core, and keep the supplied clients alive until after core disposal.
+The host supplies HTTP clients, an `IUploadAuthSession` adapter and an app-owned storage directory. Configure reference-data caching before constructing the core, and keep the supplied clients alive until after core disposal. Hosts may also call `ReferenceDataLoader.Shared.ConfigureBundled` with base copies opened by file name; a base copy is used only when the download, its retries and the disk cache all fail.
 
 ```csharp
 using AFMDataClient.Core;
