@@ -2,6 +2,7 @@ using Albion.Network;
 using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace AlbionDataAvalonia.Network.Events;
 
@@ -13,6 +14,8 @@ public sealed class PartyLootItemsEvent : BaseEvent
     public IReadOnlyList<int> Qualities { get; } = Array.Empty<int>();
     public IReadOnlyList<int> Amounts { get; } = Array.Empty<int>();
     public IReadOnlyList<string> PlayerNames { get; } = Array.Empty<string>();
+    // The game's estimated value of one item of each stack, in silver.
+    public IReadOnlyList<long> UnitValues { get; } = Array.Empty<long>();
 
     public PartyLootItemsEvent(Dictionary<byte, object> parameters) : base(parameters)
     {
@@ -46,6 +49,11 @@ public sealed class PartyLootItemsEvent : BaseEvent
             if (parameters.TryGetValue(10, out var playerNames))
             {
                 PlayerNames = playerNames.ToStringArray();
+            }
+
+            if (parameters.TryGetValue(11, out var unitValues))
+            {
+                UnitValues = unitValues.ToLongArray().Select(value => value / 10000).ToArray();
             }
         }
         catch (Exception e)
