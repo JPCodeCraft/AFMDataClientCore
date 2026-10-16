@@ -19,8 +19,9 @@ public class UpdateFameEvent : BaseEvent
     public double ZoneFame { get; }
     public double TotalGainedFame => ObservedAward ?? 0;
     public double? ObservedAward { get; }
-    // Keys 12 and 13 (fixed point, equal in every capture): bonus fame bought with Quick Learn.
-    // The game reports it as "bonus Fame from Quick Learn" and counts it in the fame gained.
+    // Key 12 (fixed point): bonus fame bought with Quick Learn, six times the base fame, for kills
+    // and harvests alike. The game reports it as "bonus Fame from Quick Learn" and counts it in the
+    // fame gained. Key 13 comes with it: equal to key 12 for wood, twice key 12 for hides and kills.
     public double? QuickLearnFame { get; }
     // Key 14 (fixed point): the silver Quick Learn charged for that bonus, e.g. 3,918 for "Cost: 0.39".
     public double? QuickLearnSilverCost { get; }
@@ -68,12 +69,13 @@ public class UpdateFameEvent : BaseEvent
             var award = (FameWithZoneMultiplier + PremiumFame + SatchelFame) * BonusFactor;
             if (double.IsFinite(award) && award >= 0) ObservedAward = award;
         }
-        // A Quick Learn harvest adds keys 12, 13 and 14: a 90 fame swing with premium reported
-        // 12 = 13 = 5,400,000 and 14 = 3,918 for the game's "675 Fame (45 + 540)" and "540 bonus
-        // Fame from Quick Learn (Cost: 0.39)". ObservedAward is the normal 135; hosts add
-        // QuickLearnFame to it for the total the game reports.
-        if (states[12] == PacketFieldState.Valid && states[13] == PacketFieldState.Valid
-            && raw[12] is > 0 && raw[12] == raw[13])
+        // Quick Learn adds keys 12, 13 and 14: a 90 fame swing with premium reported 12 = 13 =
+        // 5,400,000 and 14 = 3,918 for the game's "675 Fame (45 + 540)" and "540 bonus Fame from
+        // Quick Learn (Cost: 0.39)". A T4 hide (base 15) reported 12 = 900,000 and 13 = 1,800,000,
+        // and a mob kill (base 366.3) 12 = 21,978,000 and 13 = 43,956,000; achievement progress rose
+        // by the normal award plus key 12 each time. ObservedAward stays the normal award; hosts
+        // add QuickLearnFame to it for the total the game reports.
+        if (states[12] == PacketFieldState.Valid && raw[12] is > 0)
             QuickLearnFame = raw[12]!.Value / 10000d;
     }
 }
