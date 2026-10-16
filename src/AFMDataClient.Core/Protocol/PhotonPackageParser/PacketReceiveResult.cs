@@ -6,10 +6,11 @@ namespace PhotonPackageParser
     /// </summary>
     public readonly struct PacketReceiveResult
     {
-        public PacketReceiveResult(PacketStatus status, bool hasValidPhotonTraffic)
+        public PacketReceiveResult(PacketStatus status, bool hasValidPhotonTraffic, bool isMarketEncrypted = false)
         {
             Status = status;
             HasValidPhotonTraffic = hasValidPhotonTraffic;
+            IsMarketEncrypted = isMarketEncrypted;
         }
 
         /// <summary>
@@ -24,5 +25,13 @@ namespace PhotonPackageParser
         /// disconnect commands alone do not set this value.
         /// </summary>
         public bool HasValidPhotonTraffic { get; }
+
+        /// <summary>
+        /// Gets whether market data is unreadable: an encrypted reply answered a
+        /// pending market request, or the whole stream is confirmed encrypted.
+        /// Other encrypted replies, such as those sent when entering a dungeon,
+        /// only set <see cref="Status"/>.
+        /// </summary>
+        public bool IsMarketEncrypted { get; }
     }
 }

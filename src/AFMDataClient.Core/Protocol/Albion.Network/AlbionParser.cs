@@ -19,6 +19,10 @@ namespace Albion.Network
         protected override string CurrentTransportStream => currentDatagram?.DirectionalConnectionId ?? string.Empty;
         protected override string CurrentReceiveConnectionId => currentDatagram?.ConnectionId ?? string.Empty;
         protected override DateTime CurrentReceiveCapturedAtUtc => currentDatagram?.CapturedAt ?? DateTime.UtcNow;
+        // Market requests awaiting their reply, by connection. An encrypted reply to one of
+        // them is the only evidence that market data is encrypted.
+        private static readonly TimeSpan MarketReplyWindow = TimeSpan.FromSeconds(5);
+        private readonly Dictionary<string, DateTime> pendingMarketRequests = new Dictionary<string, DateTime>();
 
         public PacketReceiveResult Receive(AFMDataClient.Core.CapturedDatagram datagram)
         {
@@ -233,6 +237,11 @@ namespace Albion.Network
                     requestMatchValue);
             }
 #endif
+            if (IsMarketOperation(operationCode))
+            {
+                if (pendingMarketRequests.Count >= 64) pendingMarketRequests.Clear();
+                pendingMarketRequests[CurrentReceiveConnectionId] = CurrentReceiveCapturedAtUtc;
+            }
             var requestPacket = new RequestPacket(
                 operationCode,
                 Parameters,
@@ -264,6 +273,7 @@ namespace Albion.Network
                     responseMatchValue);
             }
 #endif
+            if (IsMarketOperation(operationCode)) pendingMarketRequests.Remove(CurrentReceiveConnectionId);
             var responsePacket = new ResponsePacket(
                 operationCode,
                 Parameters,
@@ -275,6 +285,19 @@ namespace Albion.Network
             NotifyObserved(responsePacket);
             handlers.HandleAsync(responsePacket).GetAwaiter().GetResult();
         }
+
+        protected override bool IsEncryptedMarketReply()
+        {
+            var connection = CurrentReceiveConnectionId;
+            if (!pendingMarketRequests.Remove(connection, out var requestedAt)) return false;
+            var age = CurrentReceiveCapturedAtUtc - requestedAt;
+            return age >= TimeSpan.Zero && age <= MarketReplyWindow;
+        }
+
+        protected override void OnTransportContextReset() => pendingMarketRequests.Clear();
+
+        private static bool IsMarketOperation(short operationCode) =>
+            operationCode == (short)OperationCodes.AuctionGetOffers || operationCode == (short)OperationCodes.AuctionGetRequests;
 
 #if DEBUG
         private static bool TryGetEventLogMatch(short eventCode, Dictionary<byte, object> parameters, out string matchPath, out object? matchValue, out string? matchedText)

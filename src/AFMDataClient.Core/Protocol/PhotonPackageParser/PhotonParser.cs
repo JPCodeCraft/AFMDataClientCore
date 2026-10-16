@@ -46,7 +46,21 @@ namespace PhotonPackageParser
                 _pendingSegmentBytes = 0;
                 _hasEncryptedCandidate = false;
                 CurrentMessageIdentity = null;
+                OnTransportContextReset();
             }
+        }
+
+        protected virtual void OnTransportContextReset()
+        {
+        }
+
+        /// <summary>
+        /// Called for an encrypted reliable message. Returns whether it answers a pending
+        /// market request; the encrypted payload does not reveal its operation itself.
+        /// </summary>
+        protected virtual bool IsEncryptedMarketReply()
+        {
+            return false;
         }
 
         public PacketStatus ReceivePacket(byte[] payload)
@@ -176,15 +190,15 @@ namespace PhotonPackageParser
 
             if (isEncrypted)
             {
-                // This doesn't really work, flags is always 0?
-                return new PacketReceiveResult(
-                    PacketStatus.Encrypted,
-                    IsConfirmedEncryptedPayload(
-                        payload,
-                        peerId,
-                        challenge,
-                        timestamp,
-                        commandCount));
+                // This doesn't really work, flags is always 0? A confirmed encrypted
+                // stream leaves market data unreadable as well.
+                bool isConfirmed = IsConfirmedEncryptedPayload(
+                    payload,
+                    peerId,
+                    challenge,
+                    timestamp,
+                    commandCount);
+                return new PacketReceiveResult(PacketStatus.Encrypted, isConfirmed, isConfirmed);
             }
 
             if (isCrcEnabled)
@@ -212,7 +226,8 @@ namespace PhotonPackageParser
                 {
                     return new PacketReceiveResult(
                         PacketStatus.InvalidHeader,
-                        response.HasValidPhotonTraffic);
+                        response.HasValidPhotonTraffic,
+                        response.IsMarketEncrypted);
                 }
 
                 PacketReceiveResult commandResult = HandleCommand(
@@ -397,12 +412,14 @@ namespace PhotonPackageParser
             offset += operationLength;
             string payloadPreview = GetHexPreview(source, payloadOffset, operationLength);
 
-            // Encrypted message for market data?
+            // Encrypted operation response. Albion also encrypts unrelated replies, such as
+            // on dungeon entry, so only a reply to a pending market request marks market data.
             if (messageType == 131)
             {
                 return new PacketReceiveResult(
                     PacketStatus.Encrypted,
-                    operationLength > 0);
+                    operationLength > 0,
+                    operationLength > 0 && IsEncryptedMarketReply());
             }
 
             switch ((MessageType)messageType)
@@ -871,7 +888,8 @@ namespace PhotonPackageParser
         {
             return new PacketReceiveResult(
                 CombinePacketStatus(current.Status, candidate.Status),
-                current.HasValidPhotonTraffic || candidate.HasValidPhotonTraffic);
+                current.HasValidPhotonTraffic || candidate.HasValidPhotonTraffic,
+                current.IsMarketEncrypted || candidate.IsMarketEncrypted);
         }
 
         private bool IsConfirmedEncryptedPayload(
