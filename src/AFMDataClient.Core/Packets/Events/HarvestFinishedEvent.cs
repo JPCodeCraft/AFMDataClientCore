@@ -20,6 +20,10 @@ public sealed class HarvestFinishedEvent : BaseEvent
     public PacketFieldState PremiumBonusAmountState { get; }
     public long? TotalQuantity { get; }
     public PacketFieldState TotalQuantityState { get; } = PacketFieldState.Invalid;
+    // Keys 9 and 10: bonus drops from the swing, as item unique names and their counts. A T4 tree
+    // swing that dropped an Adept Lumberjack Tome reported 9 = ["T4_SKILLBOOK_GATHER_WOOD"] and
+    // 10 = [1]; other swings send both empty. Malformed or mismatched lists yield no rewards.
+    public IReadOnlyList<HarvestBonusReward> BonusRewards { get; } = [];
     public bool IsValid => UserObjectIdState == PacketFieldState.Valid && UserObjectId > 0
         && ItemIdState == PacketFieldState.Valid && ItemId > 0 && TotalQuantity is > 0;
 
@@ -59,6 +63,21 @@ public sealed class HarvestFinishedEvent : BaseEvent
         }
         else if (standard.State == PacketFieldState.Missing && gathering.State != PacketFieldState.Invalid
             && premium.State != PacketFieldState.Invalid) TotalQuantityState = PacketFieldState.Missing;
+        BonusRewards = ReadBonusRewards(parameters);
+    }
+
+    private static IReadOnlyList<HarvestBonusReward> ReadBonusRewards(Dictionary<byte, object> parameters)
+    {
+        if (!parameters.TryGetValue(9, out var names) || !parameters.TryGetValue(10, out var counts) ||
+            names is not Array nameList || counts is not Array countList || nameList.Length != countList.Length) return [];
+        var rewards = new List<HarvestBonusReward>(nameList.Length);
+        for (var i = 0; i < nameList.Length; i++)
+        {
+            var count = countList.GetValue(i) switch { byte value => value, short value => value, int value => value, long value => value, _ => 0L };
+            if (nameList.GetValue(i) is not string name || string.IsNullOrWhiteSpace(name) || count is <= 0 or > int.MaxValue) return [];
+            rewards.Add(new(name, (int)count));
+        }
+        return rewards;
     }
 
     private static PacketField<long> Nonnegative(Dictionary<byte, object> parameters, byte key)
@@ -67,3 +86,6 @@ public sealed class HarvestFinishedEvent : BaseEvent
         return value.Optional is < 0 ? new(PacketFieldState.Invalid, 0) : value;
     }
 }
+
+/// <summary>An extra item a harvest swing dropped, such as a gathering tome.</summary>
+public sealed record HarvestBonusReward(string UniqueName, int Count);
