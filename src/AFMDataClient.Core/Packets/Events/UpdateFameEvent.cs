@@ -19,9 +19,11 @@ public class UpdateFameEvent : BaseEvent
     public double ZoneFame { get; }
     public double TotalGainedFame => ObservedAward ?? 0;
     public double? ObservedAward { get; }
-    public double? ObservedProgressionAward { get; }
-    public long? ProgressionDetailToken { get; }
-    public PacketFieldState ProgressionDetailTokenState { get; }
+    // Keys 12 and 13 (fixed point, equal in every capture): bonus fame bought with Quick Learn.
+    // The game reports it as "bonus Fame from Quick Learn" and counts it in the fame gained.
+    public double? QuickLearnFame { get; }
+    // Key 14 (fixed point): the silver Quick Learn charged for that bonus, e.g. 3,918 for "Cost: 0.39".
+    public double? QuickLearnSilverCost { get; }
     public double? ReportedBonusIncrement { get; }
     public IReadOnlyDictionary<byte, PacketFieldState> ComponentStates { get; }
     public IReadOnlyDictionary<byte, long?> RawFixedPointComponents { get; }
@@ -44,9 +46,8 @@ public class UpdateFameEvent : BaseEvent
         var factor = ActivityPacketValues.Double(parameters, 17);
         if (factor.State == PacketFieldState.Valid && factor.Value < -1) factor = new(PacketFieldState.Invalid, default);
         states[5] = premium.State; states[17] = factor.State;
-        var token = ActivityPacketValues.Long(parameters, 14);
-        ProgressionDetailToken = token.Optional;
-        ProgressionDetailTokenState = token.State;
+        var quickLearnCost = ActivityPacketValues.Long(parameters, 14);
+        QuickLearnSilverCost = quickLearnCost.Optional is > 0 ? quickLearnCost.Value / 10000d : null;
         ComponentStates = states; RawFixedPointComponents = raw;
         TotalPlayerFame = (raw[1] ?? 0) / 10000d;
         FameWithZoneMultiplier = (raw[2] ?? 0) / 10000d;
@@ -67,18 +68,12 @@ public class UpdateFameEvent : BaseEvent
             var award = (FameWithZoneMultiplier + PremiumFame + SatchelFame) * BonusFactor;
             if (double.IsFinite(award) && award >= 0) ObservedAward = award;
         }
-        // Gathering/fishing captures with equal parameters 12/13 report one
-        // additional progression component. It already includes its applicable
-        // bonuses: add it once to the ordinary award without multiplying it by
-        // premium or parameter 17 again. Captures with and without parameter 17
-        // confirm the resulting applicable Destiny Board increment. Hosts select
-        // it only with matching gathering/fishing source evidence.
-        if (ObservedAward is { } ordinaryAward
-            && states[12] == PacketFieldState.Valid && states[13] == PacketFieldState.Valid
+        // A Quick Learn harvest adds keys 12, 13 and 14: a 90 fame swing with premium reported
+        // 12 = 13 = 5,400,000 and 14 = 3,918 for the game's "675 Fame (45 + 540)" and "540 bonus
+        // Fame from Quick Learn (Cost: 0.39)". ObservedAward is the normal 135; hosts add
+        // QuickLearnFame to it for the total the game reports.
+        if (states[12] == PacketFieldState.Valid && states[13] == PacketFieldState.Valid
             && raw[12] is > 0 && raw[12] == raw[13])
-        {
-            var award = ordinaryAward + raw[12]!.Value / 10000d;
-            if (double.IsFinite(award) && award >= 0) ObservedProgressionAward = award;
-        }
+            QuickLearnFame = raw[12]!.Value / 10000d;
     }
 }
