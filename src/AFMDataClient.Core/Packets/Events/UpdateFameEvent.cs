@@ -21,7 +21,9 @@ public class UpdateFameEvent : BaseEvent
     public double? ObservedAward { get; }
     // Key 12 (fixed point): bonus fame bought with Quick Learn, six times the base fame, for kills
     // and harvests alike. The game reports it as "bonus Fame from Quick Learn" and counts it in the
-    // fame gained. Key 13 comes with it: equal to key 12 for wood, twice key 12 for hides and kills.
+    // fame gained. Key 13 comes with it: key 12 times the number of destiny board nodes credited,
+    // each of which gains the full bonus. Wood credits one node (1x), hides and spear kills two (2x),
+    // and a kill with spear and shield both on Quick Learn three (3x). Only key 12 is character fame.
     public double? QuickLearnFame { get; }
     // Key 14 (fixed point): the silver Quick Learn charged for that bonus, e.g. 3,918 for "Cost: 0.39".
     public double? QuickLearnSilverCost { get; }
