@@ -14,6 +14,8 @@ namespace Albion.Network
 
         protected abstract Task OnActionAsync(TOperation value);
 
+        public override bool CanHandle(object packet) => packet is RequestPacket request && request.OperationCode == operationCode;
+
         protected internal override Task OnHandleAsync(RequestPacket packet)
         {
             if (operationCode != packet.OperationCode)

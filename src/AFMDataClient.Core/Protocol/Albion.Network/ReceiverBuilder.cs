@@ -48,6 +48,17 @@ namespace Albion.Network
             return this;
         }
 
+        // Observes only packets at least one registered handler consumes; isActive is checked first so an idle observer stays cheap.
+        public ReceiverBuilder ObserveHandledPackets(Action<object> observer, Func<bool>? isActive = null)
+        {
+            parser.PacketObserved += packet =>
+            {
+                if (isActive?.Invoke() == false || !parser.HasHandlerFor(packet)) return;
+                observer(packet);
+            };
+            return this;
+        }
+
         public ReceiverBuilder SubscribeEvent<T>(int code, Func<T, Task> action, int priority = 0) where T : BaseEvent
             => AddEventHandler(new EventSubscription<T>(code, action) { Priority = priority });
 

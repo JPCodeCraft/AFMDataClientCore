@@ -25,21 +25,15 @@ namespace Albion.Network
 
         protected abstract Task OnActionAsync(TEvent value);
 
+        public override bool CanHandle(object packet) => packet is EventPacket eventPacket && Handles(eventPacket.EventCode);
+
+        private bool Handles(int eventCode) => isSingleCode ? eventCode == singleEventCode : eventCodes?.Contains(eventCode) == true;
+
         protected internal override Task OnHandleAsync(EventPacket packet)
         {
-            if (isSingleCode)
+            if (!Handles(packet.EventCode))
             {
-                if (packet.EventCode != singleEventCode)
-                {
-                    return Task.CompletedTask;
-                }
-            }
-            else
-            {
-                if (eventCodes == null || !eventCodes.Contains(packet.EventCode))
-                {
-                    return Task.CompletedTask;
-                }
+                return Task.CompletedTask;
             }
 
             TEvent instance = packet.GetDecoded<TEvent>(packet.Parameters);

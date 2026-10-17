@@ -14,6 +14,8 @@ internal sealed class HandlersCollection
         else handlers.Insert(index, handler);
     }
 
+    public bool CanHandle(object packet) => handlers.Any(handler => handler.CanHandle(packet));
+
     public async Task HandleAsync(object packet)
     {
         foreach (var handler in handlers)

@@ -6,6 +6,8 @@ namespace Albion.Network
     {
         public int Priority { get; set; }
 
+        public virtual bool CanHandle(object packet) => packet is TPacket;
+
         public Task HandleAsync(object request)
         {
             if (request is TPacket packet)

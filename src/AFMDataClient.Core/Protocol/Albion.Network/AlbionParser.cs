@@ -67,6 +67,8 @@ namespace Albion.Network
             }
         }
 
+        internal bool HasHandlerFor(object packet) => handlers.CanHandle(packet);
+
         public void AddHandler<TPacket>(PacketHandler<TPacket> handler)
         {
             handlers.Add(handler);
