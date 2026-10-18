@@ -3,7 +3,8 @@ using System.Text.Json;
 namespace AlbionDataAvalonia.Locations;
 
 /// <summary>Optional facts supplied by an observed entrance or an exact instance layout.
-/// A Mists instance's Layout is its fixed master layout, which names its minimap.</summary>
+/// Layout names the instance's minimap: a Mists instance's fixed master layout, or the map
+/// another instance reports when it is entered.</summary>
 public sealed record ActivityInstanceMetadata(int? Tier = null, string? ZoneType = null, string? Mode = null,
     string? Faction = null, int? Enchantment = null, string? Rarity = null, string? Layout = null)
 {
@@ -33,7 +34,8 @@ public sealed record ActivityInstanceMetadata(int? Tier = null, string? ZoneType
 
     public static ActivityInstanceMetadata FromTransition(ActivityMapKind kind, string? layoutId, byte[]? dungeonInformation)
     {
-        if (kind is not (ActivityMapKind.Mists or ActivityMapKind.MistsDungeon)) return new();
+        // Other instances name their own map, such as a Corrupted Lair's CORRUPT-003.
+        if (kind is not (ActivityMapKind.Mists or ActivityMapKind.MistsDungeon)) return new(Layout: layoutId);
         var result = layoutId is not null && Mists.TryGetValue(layoutId, out var map) && map.Kind == kind
             ? map.Metadata : new ActivityInstanceMetadata();
         if (layoutId is not null && MistsLayouts.TryGetValue(layoutId, out var layout)) result = result with { Layout = layout };
