@@ -34,6 +34,7 @@ internal static class PacketFactory
             [typeof(AlbionDataAvalonia.Network.Events.JournalGotFullEvent)] = p => new AlbionDataAvalonia.Network.Events.JournalGotFullEvent(p),
             [typeof(AlbionDataAvalonia.Network.Events.LeaveEvent)] = p => new AlbionDataAvalonia.Network.Events.LeaveEvent(p),
             [typeof(AlbionDataAvalonia.Network.Events.LootChestOpenedEvent)] = p => new AlbionDataAvalonia.Network.Events.LootChestOpenedEvent(p),
+            [typeof(AlbionDataAvalonia.Network.Events.MistsLandmarkEvent)] = p => new AlbionDataAvalonia.Network.Events.MistsLandmarkEvent(p),
             [typeof(AlbionDataAvalonia.Network.Events.NewBuildingEvent)] = p => new AlbionDataAvalonia.Network.Events.NewBuildingEvent(p),
             [typeof(AlbionDataAvalonia.Network.Events.NewCharacterEvent)] = p => new AlbionDataAvalonia.Network.Events.NewCharacterEvent(p),
             [typeof(AlbionDataAvalonia.Network.Events.NewEquipmentItemEvent)] = p => new AlbionDataAvalonia.Network.Events.NewEquipmentItemEvent(p),

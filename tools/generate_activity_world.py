@@ -2,11 +2,15 @@
 import json
 import re
 from pathlib import Path
-from urllib.request import urlopen
+import time
+from urllib.request import Request, urlopen
 
 REVISION = "d5a47d4ba49d5bf2c0253b224be85fe26121cfa1"
 SOURCE = f"https://raw.githubusercontent.com/JPCodeCraft/ao-bin-dumps/{REVISION}/cluster/world.json"
 MISTS_SOURCE = f"https://raw.githubusercontent.com/JPCodeCraft/ao-bin-dumps/{REVISION}/mists.json"
+# AlbionWorld publishes each Mists layout's features, including its wisp spawns and border exits.
+WORLD_SOURCE = "https://cdn.albionfreemarket.com/AlbionWorld"
+MISTS_LANDMARKS = ("mistswispspawn", "mistsborderexit")
 
 
 def classify(value):
@@ -82,6 +86,33 @@ def mists_layouts(mapsets):
     return result
 
 
+def mists_landmarks(layouts):
+    """Wisp spawns and border exits stand at fixed points of a layout, so seen ones identify it.
+
+    Each layout's points are flattened to x, y pairs at half-unit precision. The Mists dungeon has no
+    published features and is skipped.
+    """
+    def fetch(url):
+        # The CDN refuses Python's default user agent.
+        return urlopen(Request(url, headers={"User-Agent": "AFMDataClientCore/generate_activity_world"}), timeout=60)
+
+    # The version file is edge-cached; a per-minute query reads the current one.
+    with fetch(f"{WORLD_SOURCE}/map-data-version.json?t={int(time.time() // 60)}") as response:
+        version = json.load(response)["version"]
+    result = {}
+    for layout in sorted(set(layouts.values())):
+        if "_DNG_" in layout:
+            continue
+        with fetch(f"{WORLD_SOURCE}/map-features/maps/{layout}.json?v={version}") as response:
+            features = json.load(response)["features"]
+        points = sorted({(round(feature["x"] * 2) / 2, round(feature["z"] * 2) / 2)
+                         for feature in features if feature.get("type") in MISTS_LANDMARKS})
+        if not points:
+            raise ValueError(f"Mists layout {layout} has no landmarks")
+        result[layout] = [value for point in points for value in point]
+    return result, version
+
+
 if __name__ == "__main__":
     with urlopen(SOURCE, timeout=30) as response:
         clusters = json.load(response)["world"]["clusters"]["cluster"]
@@ -94,9 +125,12 @@ if __name__ == "__main__":
         mapsets = json.load(response)["mists"]["mistsmaps"]["mapset"]
     mists = mists_entries(mapsets)
     layouts = mists_layouts(mapsets)
+    landmarks, world_version = mists_landmarks(layouts)
     target = Path(__file__).resolve().parents[1] / "src/AFMDataClient.Core/Locations/activity-world.json"
     target.write_text(json.dumps({"source": SOURCE, "mistsSource": MISTS_SOURCE,
-                                 "revision": REVISION, "maps": entries, "mists": mists, "mistsLayouts": layouts},
+                                 "revision": REVISION, "maps": entries, "mists": mists, "mistsLayouts": layouts,
+                                 "mistsLandmarksSource": f"{WORLD_SOURCE}@{world_version}", "mistsLandmarks": landmarks},
                                  ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
-    print(f"Generated {len(entries)} activity maps, {len(mists)} Mists templates and "
-          f"{len(set(layouts.values()))} Mists layouts ({target.stat().st_size} bytes)")
+    print(f"Generated {len(entries)} activity maps, {len(mists)} Mists templates, "
+          f"{len(set(layouts.values()))} Mists layouts and landmarks for {len(landmarks)} "
+          f"({target.stat().st_size} bytes)")
