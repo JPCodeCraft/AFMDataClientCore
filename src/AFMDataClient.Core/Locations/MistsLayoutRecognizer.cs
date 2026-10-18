@@ -14,11 +14,12 @@ public static class MistsLayoutRecognizer
 {
     // Landmarks arrive at their exact layout points; the tolerance only absorbs float rounding.
     private const double Tolerance = 1.5;
-    private const int MinimumMatches = 3;
+    private const int MinimumMatches = 2;
     private static readonly IReadOnlyList<(string Layout, (double X, double Y)[] Points)> Layouts = Load();
 
-    /// <summary>The placement that fits the most landmarks, when at least three fit and no other placement fits
-    /// more than half as many; otherwise null, since a few more landmarks will tell.</summary>
+    /// <summary>The placement that fits the most landmarks, when at least two fit and no other placement fits as many;
+    /// unless it fits them all, no other placement may fit more than half as many. Otherwise null, since a few more
+    /// landmarks will tell. The two wisps often sent on entry place about five instances in six.</summary>
     public static MistsLayoutPlacement? Recognize(IReadOnlyCollection<ActivityWorldPosition> landmarks)
     {
         if (landmarks.Count < MinimumMatches) return null;
@@ -39,7 +40,8 @@ public static class MistsLayoutRecognizer
             }
         }
 
-        return bestScore >= MinimumMatches && runnerUp * 2 <= bestScore ? best : null;
+        return bestScore >= MinimumMatches && runnerUp < bestScore && (bestScore == landmarks.Count || runnerUp * 2 <= bestScore)
+            ? best : null;
     }
 
     private static (double X, double Y) Turn((double X, double Y) point, int turns)
