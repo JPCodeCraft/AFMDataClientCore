@@ -71,6 +71,17 @@ def mists_entries(mapsets):
     return result
 
 
+def mists_layouts(mapsets):
+    """Each Mists map id names one fixed master layout; only its slot contents are rolled."""
+    result = {}
+    for mapset in mapsets:
+        for entry in mapset["map"]:
+            previous = result.setdefault(entry["@id"], entry["@mastertemplate"])
+            if previous != entry["@mastertemplate"]:
+                raise ValueError(f"Conflicting Mists layout: {entry['@id']}")
+    return result
+
+
 if __name__ == "__main__":
     with urlopen(SOURCE, timeout=30) as response:
         clusters = json.load(response)["world"]["clusters"]["cluster"]
@@ -80,9 +91,12 @@ if __name__ == "__main__":
         for cluster in clusters if classify(cluster.get("@type", "")) != "Unknown"
     }
     with urlopen(MISTS_SOURCE, timeout=30) as response:
-        mists = mists_entries(json.load(response)["mists"]["mistsmaps"]["mapset"])
+        mapsets = json.load(response)["mists"]["mistsmaps"]["mapset"]
+    mists = mists_entries(mapsets)
+    layouts = mists_layouts(mapsets)
     target = Path(__file__).resolve().parents[1] / "src/AFMDataClient.Core/Locations/activity-world.json"
     target.write_text(json.dumps({"source": SOURCE, "mistsSource": MISTS_SOURCE,
-                                 "revision": REVISION, "maps": entries, "mists": mists},
+                                 "revision": REVISION, "maps": entries, "mists": mists, "mistsLayouts": layouts},
                                  ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
-    print(f"Generated {len(entries)} activity maps and {len(mists)} Mists templates ({target.stat().st_size} bytes)")
+    print(f"Generated {len(entries)} activity maps, {len(mists)} Mists templates and "
+          f"{len(set(layouts.values()))} Mists layouts ({target.stat().st_size} bytes)")

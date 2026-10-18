@@ -2,11 +2,13 @@ using System.Text.Json;
 
 namespace AlbionDataAvalonia.Locations;
 
-/// <summary>Optional facts supplied by an observed entrance or an exact instance layout.</summary>
+/// <summary>Optional facts supplied by an observed entrance or an exact instance layout.
+/// A Mists instance's Layout is its fixed master layout, which names its minimap.</summary>
 public sealed record ActivityInstanceMetadata(int? Tier = null, string? ZoneType = null, string? Mode = null,
-    string? Faction = null, int? Enchantment = null, string? Rarity = null)
+    string? Faction = null, int? Enchantment = null, string? Rarity = null, string? Layout = null)
 {
     private static readonly IReadOnlyDictionary<string, (ActivityMapKind Kind, ActivityInstanceMetadata Metadata)> Mists = LoadMists();
+    private static readonly IReadOnlyDictionary<string, string> MistsLayouts = LoadMistsLayouts();
 
     public static ActivityInstanceMetadata FromEntrance(string? uniqueName, string? dungeonType,
         int? level, bool? isAlreadyEntered)
@@ -34,6 +36,7 @@ public sealed record ActivityInstanceMetadata(int? Tier = null, string? ZoneType
         if (kind is not (ActivityMapKind.Mists or ActivityMapKind.MistsDungeon)) return new();
         var result = layoutId is not null && Mists.TryGetValue(layoutId, out var map) && map.Kind == kind
             ? map.Metadata : new ActivityInstanceMetadata();
+        if (layoutId is not null && MistsLayouts.TryGetValue(layoutId, out var layout)) result = result with { Layout = layout };
         // Mists layout names describe templates, not the instance's rarity.
         // The trailing dungeon-information byte carries rarity for Mists only.
         if (kind == ActivityMapKind.Mists && dungeonInformation is { Length: > 0 and <= 1024 })
@@ -64,9 +67,7 @@ public sealed record ActivityInstanceMetadata(int? Tier = null, string? ZoneType
 
     private static IReadOnlyDictionary<string, (ActivityMapKind Kind, ActivityInstanceMetadata Metadata)> LoadMists()
     {
-        using var stream = typeof(ActivityInstanceMetadata).Assembly.GetManifestResourceStream("AFMDataClient.Core.Locations.activity-world.json")
-            ?? throw new InvalidOperationException("Activity world classification resource is missing.");
-        using var document = JsonDocument.Parse(stream);
+        using var document = LoadWorld();
         var result = new Dictionary<string, (ActivityMapKind, ActivityInstanceMetadata)>(StringComparer.Ordinal);
         foreach (var map in document.RootElement.GetProperty("mists").EnumerateObject())
         {
@@ -75,5 +76,21 @@ public sealed record ActivityInstanceMetadata(int? Tier = null, string? ZoneType
             result.Add(map.Name, (kind, new(values[0].GetInt32(), values[1].GetString(), values[2].GetString())));
         }
         return result;
+    }
+
+    private static IReadOnlyDictionary<string, string> LoadMistsLayouts()
+    {
+        using var document = LoadWorld();
+        return document.RootElement.TryGetProperty("mistsLayouts", out var layouts)
+            ? layouts.EnumerateObject().Where(x => x.Value.GetString() is { Length: > 0 })
+                .ToDictionary(x => x.Name, x => x.Value.GetString()!, StringComparer.Ordinal)
+            : new Dictionary<string, string>();
+    }
+
+    private static JsonDocument LoadWorld()
+    {
+        using var stream = typeof(ActivityInstanceMetadata).Assembly.GetManifestResourceStream("AFMDataClient.Core.Locations.activity-world.json")
+            ?? throw new InvalidOperationException("Activity world classification resource is missing.");
+        return JsonDocument.Parse(stream);
     }
 }
