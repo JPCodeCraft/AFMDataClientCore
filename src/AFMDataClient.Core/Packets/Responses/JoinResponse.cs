@@ -16,6 +16,8 @@ public class JoinResponse : BaseOperation
     public string? ParentClusterId { get; }
     public string? SourceClusterId { get; }
     public ActivityWorldPosition? SourceExitPosition { get; }
+    /// <summary>Where the character stands on arrival; the first Move request starts from the same spot.</summary>
+    public ActivityWorldPosition? Position { get; }
     public ActivityLocationDescriptor ActivityLocation => AlbionLocations.ResolveActivityLocation(RawLocationId, ParentClusterId, SourceClusterId);
     public Guid? MainInventoryContainerId { get; private set; }
     public IReadOnlyList<long> MainInventoryItemObjectIds { get; private set; } = [];
@@ -32,6 +34,8 @@ public class JoinResponse : BaseOperation
     {
         Log.Verbose("Got {PacketType} packet.", GetType());
         SourceExitPosition = ActivityPacketValues.Position(parameters, 64);
+        // Parameter 9 is the arrival position and 10 the facing direction, as Move's 1 and 2.
+        Position = ActivityPacketValues.Position(parameters, 9);
         try
         {
             if (parameters.TryGetValue(0, out object objectId))
