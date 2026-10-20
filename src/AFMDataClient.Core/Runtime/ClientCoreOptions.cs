@@ -27,8 +27,9 @@ public interface IUploadAuthSession
     Task<string?> GetTokenAsync(string expectedAccountId, bool forceRefresh, CancellationToken cancellationToken);
 }
 
+// FailureReason says why a failed upload failed, such as "HTTP 429" or "timed out"; it is null otherwise.
 public sealed record ClientUploadResult(Guid Identifier, string Kind, UploadStatus Status,
-    UploadScope Scope, AlbionServer? Server, int Count, object? Payload);
+    UploadScope Scope, AlbionServer? Server, int Count, object? Payload, string? FailureReason = null);
 
 internal sealed class CoreSettings(ClientCoreOptions options)
 {

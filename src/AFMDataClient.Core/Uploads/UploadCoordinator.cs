@@ -466,7 +466,20 @@ public sealed class UploadCoordinator : IDisposable
             logger.Debug("{Destination} {Kind} upload skipped. {Count} entries. Identifier: {identifier}. Server: {Server}",
                 destination, job.Kind, job.Count, job.Identifier, job.Context.Server.Name);
         }
-        UploadResult.Publish(new(job.Identifier, job.Kind, status, scope, job.Context.Server, job.Count, job.Payload));
+        var failureReason = status == UploadStatus.Failed ? DescribeFailure(exception, statusCode) : null;
+        UploadResult.Publish(new(job.Identifier, job.Kind, status, scope, job.Context.Server, job.Count, job.Payload, failureReason));
+    }
+
+    // A short reason for diagnostics; the log keeps the full exception.
+    private static string DescribeFailure(Exception? exception, HttpStatusCode? statusCode)
+    {
+        statusCode ??= (exception as HttpRequestException)?.StatusCode;
+        if (statusCode.HasValue) return $"HTTP {(int)statusCode.Value}";
+        if (exception is OperationCanceledException) return "timed out";
+        if (exception is null) return "did not complete";
+        var message = exception.GetBaseException().Message;
+        var lineEnd = message.IndexOfAny(['\r', '\n']);
+        return lineEnd >= 0 ? message[..lineEnd] : message;
     }
     public void Dispose()
     {

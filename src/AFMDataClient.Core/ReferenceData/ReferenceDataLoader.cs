@@ -1,5 +1,7 @@
 using Serilog;
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -11,6 +13,16 @@ using System.Threading.Tasks;
 
 namespace AlbionDataAvalonia.ReferenceData;
 
+public enum ReferenceDataSource
+{
+    Download,
+    DiskCache,
+    Bundled
+}
+
+/// <summary>Where a reference file last came from, for diagnostics.</summary>
+public sealed record ReferenceDataLoad(string FileName, ReferenceDataSource Source, DateTime LoadedUtc);
+
 public sealed class ReferenceDataLoader
 {
     private static readonly ReferenceDataOptions DefaultSettings = new();
@@ -19,6 +31,7 @@ public sealed class ReferenceDataLoader
     private readonly SemaphoreSlim downloadSemaphore = new(3);
     private Func<ReferenceDataOptions> getReferenceDataOptions = () => DefaultSettings;
     private Func<string, Stream?> openBundled = _ => null;
+    private readonly ConcurrentDictionary<string, ReferenceDataLoad> loads = new(StringComparer.OrdinalIgnoreCase);
 
     public static ReferenceDataLoader Shared { get; private set; } = new(
         new HttpClient { Timeout = Timeout.InfiniteTimeSpan },
@@ -31,6 +44,9 @@ public sealed class ReferenceDataLoader
         this.httpClient = httpClient;
         this.cacheDirectory = cacheDirectory;
     }
+
+    /// <summary>The latest successful load of each file, by file name.</summary>
+    public IReadOnlyCollection<ReferenceDataLoad> Loads => loads.Values.ToArray();
 
     public void Configure(Func<ReferenceDataOptions> getReferenceDataOptions)
     {
@@ -90,6 +106,7 @@ public sealed class ReferenceDataLoader
                 var value = parse(content);
                 cancellationToken.ThrowIfCancellationRequested();
                 await SaveCacheAsync(cachePath, content, cancellationToken).ConfigureAwait(false);
+                RecordLoad(fileName, ReferenceDataSource.Download);
                 return value;
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
@@ -102,6 +119,7 @@ public sealed class ReferenceDataLoader
                         var cachedValue = parse(cachedContent);
                         cancellationToken.ThrowIfCancellationRequested();
                         Log.Warning(ex, "Failed to refresh reference data from {Url}; using the last validated disk cache", url);
+                        RecordLoad(fileName, ReferenceDataSource.DiskCache);
                         return cachedValue;
                     }
                     catch (Exception cacheException) when (!cancellationToken.IsCancellationRequested)
@@ -117,6 +135,7 @@ public sealed class ReferenceDataLoader
                     if (TryLoadBundled(fileName, parse, out var bundledValue))
                     {
                         Log.Warning(ex, "Reference data unavailable from {Url}; using the bundled copy", url);
+                        RecordLoad(fileName, ReferenceDataSource.Bundled);
                         return bundledValue;
                     }
                     throw;
@@ -133,6 +152,9 @@ public sealed class ReferenceDataLoader
             }
         }
     }
+
+    private void RecordLoad(string fileName, ReferenceDataSource source) =>
+        loads[fileName] = new ReferenceDataLoad(fileName, source, DateTime.UtcNow);
 
     private bool TryLoadBundled<T>(string fileName, Func<string, T> parse, out T value)
     {
