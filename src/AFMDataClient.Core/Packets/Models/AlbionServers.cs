@@ -1,5 +1,8 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 
 namespace AlbionDataAvalonia.Network.Models;
 
@@ -16,6 +19,32 @@ public static class AlbionServers
     public static List<AlbionServer> GetAll() => _all;
     public static AlbionServer? Get(string name) => _all.SingleOrDefault(server => server.Name.ToLower() == name.ToLower());
     public static AlbionServer? Get(int id) => _all.SingleOrDefault(server => server.Id == id);
+
+    // Albion's servers only have IPv4 addresses. On IPv6-only networks, such as phone tethering on
+    // some carriers, they arrive through NAT64, which puts the IPv4 address in the last 32 bits of
+    // an IPv6 one (64:ff9b::52d:bb3c is 5.45.187.60). IPv4-mapped addresses (::ffff:...) keep it
+    // there too.
+    public static AlbionServer? FindByAddress(IPAddress? address)
+    {
+        if (address is null)
+        {
+            return null;
+        }
+
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            address = new IPAddress(address.GetAddressBytes().AsSpan(12, 4));
+        }
+        else if (address.AddressFamily != AddressFamily.InterNetwork)
+        {
+            return null;
+        }
+
+        var ip = address.ToString();
+        return _all.FirstOrDefault(server =>
+            server.HostIps.Any(prefix => ip.StartsWith(prefix + ".", StringComparison.Ordinal)));
+    }
+
     public static bool TryParse(string info, out AlbionServer? server)
     {
         // try to parse to an int, then its Id
