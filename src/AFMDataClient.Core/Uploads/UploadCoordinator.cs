@@ -80,7 +80,7 @@ public sealed class UploadCoordinator : IDisposable
         context ??= Snapshot();
         if (disposed || context is null || count < 0 || count == 0 && kind != "Festivities") return;
         // Freeze mutable packet data before returning control to another subscriber.
-        var options = kind is "MarketOrders" or "MarketHistory" or "Gold" or "Bandit" ? PublicJson : AfmJson;
+        var options = kind is "MarketOrders" or "MarketHistory" or "Gold" or "Bandit" || payload is PublicFestivitiesUpload ? PublicJson : AfmJson;
         var copy = JsonSerializer.Deserialize(JsonSerializer.SerializeToUtf8Bytes(payload, payload.GetType(), options), payload.GetType(), options)!;
         var identifier = copy is BaseUpload upload ? upload.Identifier : Guid.NewGuid();
         if (!queue.Writer.TryWrite(new(identifier, kind, copy, count, context)))
@@ -171,7 +171,9 @@ public sealed class UploadCoordinator : IDisposable
                 || job.Kind == "Specs" && job.Context.SettingsGeneration != settingsGeneration;
     }
 
-    private static bool IsPublic(Job job) => job.Kind is "MarketHistory" or "Gold" or "Bandit" || job.Kind == "MarketOrders" && !job.Context.Options.PrivateMarketOrders;
+    // Festivities go to AFM as FestivitiesUpload and to AODP as PublicFestivitiesUpload under the same kind.
+    private static bool IsPublic(Job job) => job.Kind is "MarketHistory" or "Gold" or "Bandit" || job.Payload is PublicFestivitiesUpload
+        || job.Kind == "MarketOrders" && !job.Context.Options.PrivateMarketOrders;
 
     private async Task UploadAsync(Job job)
     {
@@ -200,6 +202,7 @@ public sealed class UploadCoordinator : IDisposable
             {
                 "MarketHistory" => job.Context.Options.MarketHistoriesIngestSubject,
                 "Gold" => job.Context.Options.GoldDataIngestSubject,
+                "Festivities" => job.Context.Options.FestivitiesIngestSubject,
                 _ => job.Context.Options.BanditEventIngestSubject
             };
             await UploadPublicAsync(job, topic).ConfigureAwait(false);
@@ -257,7 +260,9 @@ public sealed class UploadCoordinator : IDisposable
             });
             using var response = await publicClient.PostAsync(new Uri(origin, "/pow/" + topic), content, token).ConfigureAwait(false);
             var status = response.IsSuccessStatusCode ? UploadStatus.Success : UploadStatus.Failed;
-            if (status == UploadStatus.Success) Remember(key);
+            // AODP confirms a schedule by votes that expire after a few minutes, so sending it again
+            // renews this player's vote. ClientCore limits it to once a minute, like the AODP client.
+            if (status == UploadStatus.Success && job.Payload is not PublicFestivitiesUpload) Remember(key);
             Report(job, status, UploadScope.Public, statusCode: response.StatusCode);
         }
         catch (OperationCanceledException) when (WasInvalidated(job, UploadScope.Public)) { throw; }
@@ -446,6 +451,10 @@ public sealed class UploadCoordinator : IDisposable
                     case BanditEventUpload bandit:
                         logger.Information("Bandit event upload complete. Phase {Phase} {EventTime}. Identifier: {identifier}. Server: {Server}. Check AODP: {IdentifierUrl}",
                             bandit.Phase, bandit.EventTime, job.Identifier, job.Context.Server.Name, identifierUrl);
+                        break;
+                    case PublicFestivitiesUpload:
+                        logger.Information("Festivities upload complete. {Count} events. Identifier: {identifier}. Server: {Server}. Check AODP: {IdentifierUrl}",
+                            job.Count, job.Identifier, job.Context.Server.Name, identifierUrl);
                         break;
                 }
             }

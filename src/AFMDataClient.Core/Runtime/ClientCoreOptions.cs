@@ -17,6 +17,7 @@ public sealed record ClientCoreOptions
     public string MarketHistoriesIngestSubject { get; init; } = "markethistories.ingest";
     public string GoldDataIngestSubject { get; init; } = "goldprices.ingest";
     public string BanditEventIngestSubject { get; init; } = "banditevent.ingest";
+    public string FestivitiesIngestSubject { get; init; } = "festivities.ingest";
 }
 
 /// <summary>Credentials remain host-owned. A token must belong to the expected account, including after refresh.</summary>

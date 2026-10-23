@@ -27,7 +27,7 @@ public sealed class ClientCore : IDisposable
     private readonly Timer? emvTimer;
     private Task referenceInitialization = Task.CompletedTask;
     private bool disposed;
-    private DateTime lastBandit;
+    private DateTime lastBandit, lastPublicFestivities;
     private (int? Server, string? Player, string? Location) lastSession;
     public ClientSession Session { get; } = new();
     public UploadCoordinator Uploads { get; }
@@ -234,6 +234,7 @@ public sealed class ClientCore : IDisposable
     {
         if (!value.IsValid || Session.AlbionServer is not { } server) return Task.CompletedTask;
         var upload = new FestivitiesUpload { ServerId = server.Id };
+        var publicUpload = new PublicFestivitiesUpload();
         for (var i = 0; i < value.Kinds.Length; i++)
         {
             var name = value.UniqueNames[i]?.Trim();
@@ -247,8 +248,16 @@ public sealed class ClientCore : IDisposable
                 StartTime = new(start, DateTimeKind.Utc),
                 EndTime = new(end, DateTimeKind.Utc)
             });
+            // AODP counts identical schedules from different players, so send what the AODP client sends: the category untrimmed and the raw ticks.
+            publicUpload.Events.Add(new() { Kind = value.Kinds[i], Category = value.Categories[i] ?? "", UniqueName = name, StartTime = start, EndTime = end });
         }
         Uploads.UploadFestivities(upload);
+        // Like the AODP client: at most once a minute, and never an empty schedule.
+        if (publicUpload.Events.Count > 0 && DateTime.UtcNow - lastPublicFestivities >= TimeSpan.FromSeconds(60))
+        {
+            lastPublicFestivities = DateTime.UtcNow;
+            Uploads.Enqueue("Festivities", publicUpload, publicUpload.Events.Count);
+        }
         return Task.CompletedTask;
     }
 
