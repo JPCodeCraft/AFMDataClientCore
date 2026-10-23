@@ -60,7 +60,8 @@ namespace AlbionDataAvalonia.Locations
             ("ARENA", "Arena", "Arena"),
             ("MISTSDUNGEON", "MistsDungeon", "Mists Dungeon"),
             ("MISTS", "Mists", "Mists"),
-            ("HELLDUNGEON", "AbyssalDepths", "Abyssal Depths")
+            ("HELLDUNGEON", "AbyssalDepths", "Abyssal Depths"),
+            ("DRAGONAREA", "AncientLands", "Ancient Lands")
         ];
 
         public static AlbionLocation Unknown { get; } = new AlbionLocation("-0002", "Unknown", "Unknown");

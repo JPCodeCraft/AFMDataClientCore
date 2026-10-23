@@ -31,7 +31,7 @@ internal static class ActivityWorldReference
         ("HELLDUNGEON", "Abyssal Depths", ActivityMapKind.AbyssalDepths),
         ("HELLCLUSTER", "Hellgate", ActivityMapKind.Hellgate),
         ("EXPEDITION", "Expedition", ActivityMapKind.Expedition),
-        ("DRAGONAREA", "Dragon Area", ActivityMapKind.DragonArea),
+        ("DRAGONAREA", "Ancient Lands", ActivityMapKind.DragonArea),
         ("ARENA", "Arena", ActivityMapKind.Arena),
         ("ISLAND", "Island", ActivityMapKind.Island),
         ("HIDEOUT", "Hideout", ActivityMapKind.Hideout)
