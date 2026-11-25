@@ -67,7 +67,6 @@ internal static class PacketFactory
             [typeof(AlbionDataAvalonia.Network.Events.TimeSyncEvent)] = p => new AlbionDataAvalonia.Network.Events.TimeSyncEvent(p),
             [typeof(AlbionDataAvalonia.Network.Events.UpdateFameEvent)] = p => new AlbionDataAvalonia.Network.Events.UpdateFameEvent(p),
             [typeof(AlbionDataAvalonia.Network.Events.UpdateLootChestEvent)] = p => new AlbionDataAvalonia.Network.Events.UpdateLootChestEvent(p),
-            [typeof(AlbionDataAvalonia.Network.Requests.AuctionBuyLoadoutOfferRequest)] = p => new AlbionDataAvalonia.Network.Requests.AuctionBuyLoadoutOfferRequest(p),
             [typeof(AlbionDataAvalonia.Network.Requests.AuctionBuyOfferRequest)] = p => new AlbionDataAvalonia.Network.Requests.AuctionBuyOfferRequest(p),
             [typeof(AlbionDataAvalonia.Network.Requests.AuctionGetItemAverageStatsRequest)] = p => new AlbionDataAvalonia.Network.Requests.AuctionGetItemAverageStatsRequest(p),
             [typeof(AlbionDataAvalonia.Network.Requests.AuctionSellRequestRequest)] = p => new AlbionDataAvalonia.Network.Requests.AuctionSellRequestRequest(p),

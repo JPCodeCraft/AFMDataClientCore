@@ -1,19 +1,16 @@
 using Albion.Network;
 using Serilog;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace AlbionDataAvalonia.Network.Responses;
 
-// The reply to a loadout purchase. Its layout has not been recorded yet. When key 0 holds
-// numbers, as the Quick Sell reply does, they are kept as the offers bought; Shape names the
-// keys and types so a debug log shows what the game sent.
+// The reply to "Buy" in Quick Purchase Loadouts: the sell offers bought (3) and the loadout slot
+// each one filled (4). Unticked and unavailable items are left out.
 public class AuctionBuyLoadoutOfferResponse : BaseOperation
 {
-    public long[]? boughtOfferIds;
-    public string Shape = string.Empty;
+    public long[] boughtOfferIds = Array.Empty<long>();
+    public int[] slots = Array.Empty<int>();
 
     public AuctionBuyLoadoutOfferResponse(Dictionary<byte, object> parameters) : base(parameters)
     {
@@ -21,21 +18,14 @@ public class AuctionBuyLoadoutOfferResponse : BaseOperation
 
         try
         {
-            Shape = string.Join("; ", parameters
-                .Where(parameter => parameter.Key != 253)
-                .OrderBy(parameter => parameter.Key)
-                .Select(parameter => parameter.Value switch
-                {
-                    null => $"{parameter.Key}:null",
-                    string => $"{parameter.Key}:String",
-                    ICollection items => $"{parameter.Key}:{parameter.Value.GetType().Name}[{items.Count}]",
-                    _ => $"{parameter.Key}:{parameter.Value.GetType().Name}",
-                }));
-
-            if (parameters.TryGetValue(0, out object? ids) && ids is IEnumerable values and not string
-                && values.Cast<object?>().All(value => value is byte or short or int or long))
+            if (parameters.TryGetValue(3, out object? ids))
             {
                 boughtOfferIds = ids.ToLongArray();
+            }
+
+            if (parameters.TryGetValue(4, out object? slots))
+            {
+                this.slots = slots.ToIntArray();
             }
         }
         catch (Exception e)
